@@ -1,0 +1,19 @@
+{
+  "name": "discord-sound-bots",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Run up to 15 configured Discord sound bots.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@discordjs/voice": "^0.18.0",
+    "discord.js": "^14.19.3",
+    "dotenv": "^16.4.7",
+    "ffmpeg-static": "^5.2.0"
+  }
+}
