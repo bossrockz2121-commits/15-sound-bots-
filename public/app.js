@@ -295,18 +295,64 @@ document.querySelector("#fleet-channel-form").addEventListener("submit", async (
 });
 
 document.querySelector("#audio-file").addEventListener("change", async (event) => {
-  const file = event.target.files?.[0];
-  if (!file) return;
+  const files = Array.from(event.target.files || []);
+  if (!files.length) return;
+  const maxFiles = 20;
+  const maxFileBytes = 50 * 1024 * 1024;
+  const maxBatchBytes = 200 * 1024 * 1024;
+  const tooLarge = files.find((file) => file.size > maxFileBytes);
+  if (files.length > maxFiles || tooLarge || files.reduce((total, file) => total + file.size, 0) > maxBatchBytes) {
+    const reason = files.length > maxFiles
+      ? `Choose no more than ${maxFiles} files per batch.`
+      : tooLarge
+        ? `${tooLarge.name} exceeds the 50 MB per-file limit.`
+        : "The combined upload batch must be 200 MB or smaller.";
+    uploadNote.classList.add("error");
+    uploadNote.textContent = reason;
+    toast(reason, true);
+    event.target.value = "";
+    return;
+  }
+
   uploadNote.classList.remove("error");
-  uploadNote.textContent = `Uploading ${file.name}…`;
-  const form = new FormData();
-  form.append("audio", file);
+  uploadNote.textContent = `Uploading ${files.length} audio file${files.length === 1 ? "" : "s"}…`;
+  let nextFile = 0;
+  let completed = 0;
+  let latestUpload = null;
+  const failures = [];
+  async function uploadWorker() {
+    while (nextFile < files.length) {
+      const file = files[nextFile++];
+      const form = new FormData();
+      form.append("audio", file);
+      try {
+        const data = await api("/api/audio", { method: "POST", body: form });
+        latestUpload = data.audio;
+      } catch (error) {
+        failures.push(`${file.name}: ${error.message}`);
+      }
+      completed += 1;
+      uploadNote.textContent = `Uploading audio files · ${completed} of ${files.length} complete…`;
+    }
+  }
+
   try {
-    const data = await api("/api/audio", { method: "POST", body: form });
-    await refreshStatus();
-    audioSelect.value = data.audio.id;
-    uploadNote.textContent = `Uploaded ${data.audio.name}; preparing for synchronized playback…`;
-    toast("Audio uploaded. Preparing it for playback.");
+    await Promise.all(Array.from({ length: Math.min(2, files.length) }, () => uploadWorker()));
+    if (latestUpload) {
+      await refreshStatus();
+      audioSelect.value = latestUpload.id;
+      uploadNote.textContent = failures.length
+        ? `${files.length - failures.length} uploaded; ${failures.length} failed. Preparing tracks for playback…`
+        : `${files.length} audio file${files.length === 1 ? "" : "s"} added; preparing tracks for playback…`;
+      renderAudio();
+    } else {
+      throw new Error(failures[0] || "No audio files were uploaded.");
+    }
+    if (failures.length) {
+      toast(`${files.length - failures.length} of ${files.length} files uploaded. First failure: ${failures[0]}`, true);
+    } else {
+      toast(`${files.length} audio file${files.length === 1 ? "" : "s"} added. Preparing them in the background.`);
+    }
   } catch (error) {
     uploadNote.classList.add("error");
     uploadNote.textContent = error.message;
@@ -365,7 +411,10 @@ async function saveAudioGain() {
 audioGainInput.addEventListener("change", saveAudioGain);
 document.querySelectorAll("[data-gain-step]").forEach((button) => {
   button.addEventListener("click", () => {
-    audioGainInput.value = String(Math.min(1000, Math.max(0, Number(audioGainInput.value) + Number(button.dataset.gainStep))));
+    const current = Number(audioGainInput.value);
+    const direction = Number(button.dataset.gainStep);
+    const step = current < 10 ? 1 : current < 100 ? 10 : 100;
+    audioGainInput.value = String(Math.min(1000, Math.max(0, current + direction * step)));
     document.querySelector("#audio-gain-value").textContent = `${Number(audioGainInput.value)}×`;
     saveAudioGain();
   });

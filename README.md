@@ -1,9 +1,10 @@
 # Soundroom — 15 Discord Sound Bots
 
 Soundroom is a password-protected web dashboard and Node.js service for
-operating up to 15 Discord sound bots together. Upload one audio track, set one
-voice-channel ID for the fleet, then start or stop every token-configured bot
-at once. Mute, unmute, deafen, and undeafen controls apply to every bot
+operating up to 15 Discord sound bots together. Add up to 20 audio files in one
+selection (200 MB total; 50 MB each), set one voice-channel ID for the fleet,
+then start or stop every token-configured bot at once.
+Mute, unmute, deafen, and undeafen controls apply to every bot
 currently connected to voice.
 
 ## Configure
@@ -44,7 +45,10 @@ currently connected to voice.
    JavaScript at playback time. New uploads are prepared in the background;
    the dashboard shows conversion progress, and Play audio reuses that prepared
    output. If conversion stops reporting progress, the dashboard shows an error
-   rather than remaining on Preparing indefinitely.
+   rather          rather than remaining on Preparing indefinitely. Audio is
+   loudness-normalized to -16 LUFS and limited to a -1 dBFS peak ceiling; the
+   gain control cannot override that ceiling. This reduces clipping but cannot
+   guarantee safe listening volume on every speaker or headset.
    The master-gain slider applies from 0× to 1000× on the next playback. The
    fleet prepares audio for every bot first, then starts all prepared players
    together in one event-loop pass. Discord network latency can still cause

@@ -129,7 +129,7 @@ async function prepareAudioForPlayback(audio, volume, onProgress = () => {}) {
       "-vn",
       "-ac", "2",
       "-ar", "48000",
-      "-af", `volume=${volume}:precision=float,alimiter=limit=0.95:attack=5:release=50`,
+      "-af", `loudnorm=I=-16:TP=-1.0:LRA=11,volume=${volume}:precision=float,alimiter=limit=0.891:attack=5:release=50:level=false`,
       "-c:a", "libopus",
       "-threads", "1",
       "-b:a", "128k",
