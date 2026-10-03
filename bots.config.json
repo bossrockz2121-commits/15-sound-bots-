@@ -1,0 +1,129 @@
+{
+  "defaults": {
+    "enabled": false,
+    "volume": 0.5,
+    "loop": false
+  },
+  "bots": [
+    {
+      "id": "sound-bot-01",
+      "name": "Sound Bot 01",
+      "tokenEnv": "DISCORD_BOT_TOKEN_01",
+      "guildId": "",
+      "voiceChannelId": "",
+      "soundFile": "sounds/bot-01.mp3"
+    },
+    {
+      "id": "sound-bot-02",
+      "name": "Sound Bot 02",
+      "tokenEnv": "DISCORD_BOT_TOKEN_02",
+      "guildId": "",
+      "voiceChannelId": "",
+      "soundFile": "sounds/bot-02.mp3"
+    },
+    {
+      "id": "sound-bot-03",
+      "name": "Sound Bot 03",
+      "tokenEnv": "DISCORD_BOT_TOKEN_03",
+      "guildId": "",
+      "voiceChannelId": "",
+      "soundFile": "sounds/bot-03.mp3"
+    },
+    {
+      "id": "sound-bot-04",
+      "name": "Sound Bot 04",
+      "tokenEnv": "DISCORD_BOT_TOKEN_04",
+      "guildId": "",
+      "voiceChannelId": "",
+      "soundFile": "sounds/bot-04.mp3"
+    },
+    {
+      "id": "sound-bot-05",
+      "name": "Sound Bot 05",
+      "tokenEnv": "DISCORD_BOT_TOKEN_05",
+      "guildId": "",
+      "voiceChannelId": "",
+      "soundFile": "sounds/bot-05.mp3"
+    },
+    {
+      "id": "sound-bot-06",
+      "name": "Sound Bot 06",
+      "tokenEnv": "DISCORD_BOT_TOKEN_06",
+      "guildId": "",
+      "voiceChannelId": "",
+      "soundFile": "sounds/bot-06.mp3"
+    },
+    {
+      "id": "sound-bot-07",
+      "name": "Sound Bot 07",
+      "tokenEnv": "DISCORD_BOT_TOKEN_07",
+      "guildId": "",
+      "voiceChannelId": "",
+      "soundFile": "sounds/bot-07.mp3"
+    },
+    {
+      "id": "sound-bot-08",
+      "name": "Sound Bot 08",
+      "tokenEnv": "DISCORD_BOT_TOKEN_08",
+      "guildId": "",
+      "voiceChannelId": "",
+      "soundFile": "sounds/bot-08.mp3"
+    },
+    {
+      "id": "sound-bot-09",
+      "name": "Sound Bot 09",
+      "tokenEnv": "DISCORD_BOT_TOKEN_09",
+      "guildId": "",
+      "voiceChannelId": "",
+      "soundFile": "sounds/bot-09.mp3"
+    },
+    {
+      "id": "sound-bot-10",
+      "name": "Sound Bot 10",
+      "tokenEnv": "DISCORD_BOT_TOKEN_10",
+      "guildId": "",
+      "voiceChannelId": "",
+      "soundFile": "sounds/bot-10.mp3"
+    },
+    {
+      "id": "sound-bot-11",
+      "name": "Sound Bot 11",
+      "tokenEnv": "DISCORD_BOT_TOKEN_11",
+      "guildId": "",
+      "voiceChannelId": "",
+      "soundFile": "sounds/bot-11.mp3"
+    },
+    {
+      "id": "sound-bot-12",
+      "name": "Sound Bot 12",
+      "tokenEnv": "DISCORD_BOT_TOKEN_12",
+      "guildId": "",
+      "voiceChannelId": "",
+      "soundFile": "sounds/bot-12.mp3"
+    },
+    {
+      "id": "sound-bot-13",
+      "name": "Sound Bot 13",
+      "tokenEnv": "DISCORD_BOT_TOKEN_13",
+      "guildId": "",
+      "voiceChannelId": "",
+      "soundFile": "sounds/bot-13.mp3"
+    },
+    {
+      "id": "sound-bot-14",
+      "name": "Sound Bot 14",
+      "tokenEnv": "DISCORD_BOT_TOKEN_14",
+      "guildId": "",
+      "voiceChannelId": "",
+      "soundFile": "sounds/bot-14.mp3"
+    },
+    {
+      "id": "sound-bot-15",
+      "name": "Sound Bot 15",
+      "tokenEnv": "DISCORD_BOT_TOKEN_15",
+      "guildId": "",
+      "voiceChannelId": "",
+      "soundFile": "sounds/bot-15.mp3"
+    }
+  ]
+}
