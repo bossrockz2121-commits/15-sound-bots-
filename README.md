@@ -28,8 +28,9 @@ currently connected to voice.
    View Channel and Connect permissions. A problem with one bot no longer
    blocks the other bots; failed bots show their individual error in the
    dashboard.
-6. Upload one sound and use **Start all bots** to play it after the bots have
-   joined. Audio playback also requires Speak permission. **Disconnect all bots**
+6. Upload one sound, select it, and click **Start audio** (or **Start all bots**
+   in the bottom control bar) to play it after the bots have joined. Audio
+   playback also requires Speak permission. **Disconnect all bots**
    stops playback and disconnects every bot, including a pending voice join.
    Joining and disconnecting are user-controlled; the app does not automatically
    retry or rejoin voice. Mute/Unmute/Deafen/Undeafen apply to every bot
@@ -43,6 +44,12 @@ currently connected to voice.
    connection alive rather than disconnecting it at timeout. If it remains
    stuck in `connecting`, use **Disconnect all bots** to cancel it, then check
    the host's outbound Discord voice connectivity before manually joining again.
+   If it remains in `signalling`, the bot card identifies whether Discord has
+   sent the bot voice-state update and voice-server update. Verify this bot's
+   token is not being used by a second running service, and that the bot is
+   still online in the selected server.
+   Each of the 15 slots must also have a unique token. Duplicate tokens are
+   detected at startup and the duplicate slot is kept offline with an error.
 
 Bots with tokens connect to Discord when the service starts. Slots without a
 token remain visible but offline and are skipped by fleet start. A channel

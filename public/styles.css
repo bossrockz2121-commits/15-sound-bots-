@@ -128,6 +128,7 @@ code { color: var(--mint); font: 11px "DM Mono", monospace; }
 .button-batch-stop:hover { background: #422820; }
 .button-upload { height: 49px; padding: 0 16px; border-color: #414738; color: var(--mint); background: #1c2117; cursor: pointer; }
 .button-upload:hover { border-color: #778651; background: #242a1c; }
+.button-audio-start { min-height: 49px; white-space: nowrap; }
 .upload-note { margin: 9px 0 0 42px; color: #858a7e; font-size: 10px; }
 .upload-note.error { color: var(--red); }
 
@@ -242,9 +243,10 @@ code { color: var(--mint); font: 11px "DM Mono", monospace; }
   .section-tag { font-size: 7px; }
   .fleet-channel-form { align-items: stretch; flex-direction: column; }
   .button-channel { width: 100%; }
-  .audio-row { gap: 6px; }
+  .audio-row { flex-wrap: wrap; gap: 6px; }
   .audio-picker { gap: 7px; padding: 0 7px; }
-  .button-upload { padding: 0 9px; font-size: 9px; }
+  .audio-picker { flex-basis: 100%; }
+  .button-upload, .button-audio-start { flex: 1; padding: 0 9px; font-size: 9px; }
   .upload-note { margin-left: 0; line-height: 1.5; }
   .fleet-section { margin-top: 21px; }
   .fleet-heading { align-items: flex-end; }

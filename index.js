@@ -34,6 +34,7 @@ const sessions = new Map();
 const loginAttempts = new Map();
 const clients = [];
 const bots = new Map();
+const tokenOwners = new Map();
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const sessionLifetimeMs = 12 * 60 * 60 * 1000;
@@ -71,6 +72,7 @@ for (const bot of config.bots) {
     deafened: false,
     playing: false,
     currentAudio: null,
+    voiceHandshake: null,
     error: null
   });
 }
@@ -162,6 +164,7 @@ function botSummary(runtime) {
     playing: runtime.playing,
     audioName: runtime.currentAudio?.name || null,
     voiceState: runtime.voiceConnection?.state?.status || null,
+    voiceHandshake: runtime.voiceHandshake,
     error: runtime.error
   };
 }
@@ -308,8 +311,13 @@ function waitForVoiceReady(connection, runtime) {
     const timeout = setTimeout(() => {
       cleanup();
       const state = connection.state.status;
+      const missing = [];
+      if (!runtime.voiceHandshake?.voiceStateUpdateReceived) missing.push("bot voice-state update");
+      if (!runtime.voiceHandshake?.voiceServerUpdateReceived) missing.push("voice-server update");
+      if (!runtime.voiceHandshake?.voiceServerEndpointReceived) missing.push("a valid voice-server endpoint");
+      const detail = missing.length ? ` Still waiting for ${missing.join(", ")}.` : "";
       reject(new Error(
-        `${runtime.config.name}: voice connection stayed in ${state} for ${Math.round(voiceReadyTimeoutMs / 1000)} seconds.`
+        `${runtime.config.name}: voice connection stayed in ${state} for ${Math.round(voiceReadyTimeoutMs / 1000)} seconds.${detail}`
       ));
     }, voiceReadyTimeoutMs);
 
@@ -380,9 +388,36 @@ async function joinBot(runtime) {
     channelId: channel.id,
     guildId: guild.id,
     group: runtime.config.id,
-    adapterCreator: guild.voiceAdapterCreator,
+    adapterCreator: (methods) => guild.voiceAdapterCreator({
+      ...methods,
+      onVoiceStateUpdate: (packet) => {
+        runtime.voiceHandshake = {
+          ...runtime.voiceHandshake,
+          voiceStateUpdateReceived: true,
+          channelId: packet.channel_id || null,
+          lastUpdateAt: new Date().toISOString()
+        };
+        return methods.onVoiceStateUpdate(packet);
+      },
+      onVoiceServerUpdate: (packet) => {
+        runtime.voiceHandshake = {
+          ...runtime.voiceHandshake,
+          voiceServerUpdateReceived: true,
+          voiceServerEndpointReceived: Boolean(packet.endpoint),
+          lastUpdateAt: new Date().toISOString()
+        };
+        return methods.onVoiceServerUpdate(packet);
+      }
+    }),
     selfDeaf: runtime.deafened,
     selfMute: runtime.muted
+  };
+  runtime.voiceHandshake = {
+    voiceStateUpdateReceived: false,
+    voiceServerUpdateReceived: false,
+    voiceServerEndpointReceived: false,
+    channelId: null,
+    lastUpdateAt: null
   };
   const connection = joinVoiceChannel(joinOptions);
   runtime.voiceConnection = connection;
@@ -427,6 +462,7 @@ async function joinBot(runtime) {
       if (connection.state.status !== VoiceConnectionStatus.Destroyed) connection.destroy();
       if (runtime.voiceConnection === connection) {
         runtime.voiceConnection = null;
+        runtime.voiceHandshake = null;
         runtime.status = runtime.client?.isReady() ? "ready" : "error";
       }
     }
@@ -480,6 +516,7 @@ function stopBot(runtime) {
     runtime.voiceConnection = null;
   }
   runtime.playing = false;
+  runtime.voiceHandshake = null;
   runtime.status = runtime.client?.isReady() ? "ready" : runtime.status;
   runtime.muted = false;
   runtime.deafened = false;
@@ -566,6 +603,16 @@ server.listen(port, "0.0.0.0", () => {
 function connectDiscordBot(runtime) {
   const token = process.env[runtime.config.tokenEnv];
   if (!token) return;
+  const tokenFingerprint = crypto.createHash("sha256").update(token).digest("hex");
+  const existingOwner = tokenOwners.get(tokenFingerprint);
+  if (existingOwner) {
+    runtime.status = "error";
+    runtime.error = `${runtime.config.name}: this token is also configured for ${existingOwner}. Each bot slot needs a different Discord bot token.`;
+    console.error(`${runtime.config.id}: duplicate token configuration detected; not logging this slot in.`);
+    return;
+  }
+  tokenOwners.set(tokenFingerprint, runtime.config.name);
+
   const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates]
   });

@@ -86,6 +86,19 @@ function renderBotCards() {
     audioStateText.className = "bot-state-detail";
     audioStateText.textContent = bot.audioName ? `♪ ${bot.audioName}` : (bot.channelId ? `Channel · ${bot.channelId}` : "No voice channel ID");
     controls.append(connectionState, audioStateText);
+    if (bot.voiceState === "signalling" && bot.voiceHandshake) {
+      const handshake = bot.voiceHandshake;
+      const waitingFor = [];
+      if (!handshake.voiceStateUpdateReceived) waitingFor.push("bot voice-state update");
+      if (!handshake.voiceServerUpdateReceived) waitingFor.push("voice-server update");
+      if (!handshake.voiceServerEndpointReceived) waitingFor.push("voice endpoint");
+      const handshakeState = document.createElement("span");
+      handshakeState.className = "bot-state-detail";
+      handshakeState.textContent = waitingFor.length
+        ? `Discord handshake waiting for: ${waitingFor.join(", ")}`
+        : "Discord handshake updates received";
+      controls.append(handshakeState);
+    }
 
     if (bot.error) {
       const error = document.createElement("p");
@@ -243,7 +256,7 @@ document.querySelector("#audio-file").addEventListener("change", async (event) =
   }
 });
 
-document.querySelector(".dock-actions").addEventListener("click", async (event) => {
+document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-action]");
   if (!button) return;
   const action = button.dataset.action;
