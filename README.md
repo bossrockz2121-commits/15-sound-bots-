@@ -24,6 +24,10 @@ deafen, or undeafen all bots currently connected to voice.
 6. Upload a sound, select the bots to operate, and use the control bar. Start
    and Stop apply to selected bots; Mute/Unmute/Deafen/Undeafen All apply to
    every bot currently connected to a voice channel.
+7. Use **Start all** to start all 15 configured bot slots in parallel with the
+   selected sound. Use **Stop all** to disconnect every bot currently in
+   voice. Bots that are offline or have not been assigned a voice channel are
+   reported individually.
 
 Bots with tokens connect to Discord when the service starts. Slots without a
 token remain visible but offline. Channel selections are held in memory until

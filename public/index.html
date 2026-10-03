@@ -81,8 +81,10 @@
       <div class="command-dock">
         <div class="dock-selection"><span class="dock-orb">◈</span><span><strong><b id="dock-count">0</b> bots selected</strong><small>Choose bots from your fleet</small></span></div>
         <div class="dock-actions">
-          <button class="button button-primary" type="button" data-action="start">▶ <span>Start</span></button>
-          <button class="button button-stop" type="button" data-action="stop">■ <span>Stop</span></button>
+          <button class="button button-primary" type="button" data-action="start">▶ <span>Start selected</span></button>
+          <button class="button button-primary button-batch" type="button" data-action="start-all" title="Start all 15 bots together">▶▶ <span>Start all</span></button>
+          <button class="button button-stop" type="button" data-action="stop">■ <span>Stop selected</span></button>
+          <button class="button button-stop button-batch-stop" type="button" data-action="stop-all" title="Stop every bot in voice">■ <span>Stop all</span></button>
           <span class="dock-divider"></span>
           <button class="button button-quiet" type="button" data-action="mute-all">◖ <span>Mute all</span></button>
           <button class="button button-quiet" type="button" data-action="unmute-all">◗ <span>Unmute all</span></button>

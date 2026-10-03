@@ -115,6 +115,10 @@ code { color: var(--mint); font: 11px "DM Mono", monospace; }
 .button:active { transform: translateY(1px); }
 .button-primary { color: #171a10; background: var(--mint); }
 .button-primary:hover { background: #d7ff82; }
+.button-batch { border-color: #52613b; color: var(--mint); background: #242b1b; }
+.button-batch:hover { background: #303b22; }
+.button-batch-stop { border-color: #59403a; color: #ffad98; background: #30211d; }
+.button-batch-stop:hover { background: #422820; }
 .button-upload { height: 49px; padding: 0 16px; border-color: #414738; color: var(--mint); background: #1c2117; cursor: pointer; }
 .button-upload:hover { border-color: #778651; background: #242a1c; }
 .upload-note { margin: 9px 0 0 42px; color: #858a7e; font-size: 10px; }

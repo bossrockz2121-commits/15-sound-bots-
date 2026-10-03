@@ -408,14 +408,16 @@ function setVoiceFlags(runtime, change) {
 
 app.post("/api/control", requireAuth, async (request, response) => {
   const { action, botIds, audioId } = request.body || {};
-  const allowedActions = new Set(["start", "stop", "stop-all", "mute-all", "unmute-all", "deafen-all", "undeafen-all"]);
+  const allowedActions = new Set(["start", "start-all", "stop", "stop-all", "mute-all", "unmute-all", "deafen-all", "undeafen-all"]);
   if (!allowedActions.has(action)) {
     response.status(400).json({ error: "Choose a valid bot action." });
     return;
   }
 
   let targets;
-  if (action.endsWith("-all")) {
+  if (action === "start-all") {
+    targets = [...bots.values()];
+  } else if (action.endsWith("-all")) {
     targets = [...bots.values()].filter((bot) => bot.voiceConnection);
   } else {
     if (!Array.isArray(botIds) || botIds.length === 0) {
@@ -431,7 +433,7 @@ app.post("/api/control", requireAuth, async (request, response) => {
   }
 
   let audio = null;
-  if (action === "start") {
+  if (action === "start" || action === "start-all") {
     audio = typeof audioId === "string" ? audioFiles.get(audioId) : null;
     if (!audio) {
       response.status(400).json({ error: "Upload or select an audio file before starting." });
@@ -441,7 +443,7 @@ app.post("/api/control", requireAuth, async (request, response) => {
 
   const results = await Promise.all(targets.map(async (runtime) => {
     try {
-      if (action === "start") await startBot(runtime, audio);
+      if (action === "start" || action === "start-all") await startBot(runtime, audio);
       if (action === "stop" || action === "stop-all") stopBot(runtime);
       if (action === "mute-all") setVoiceFlags(runtime, { muted: true });
       if (action === "unmute-all") setVoiceFlags(runtime, { muted: false });

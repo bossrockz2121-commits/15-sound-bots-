@@ -34,8 +34,7 @@ function toast(message, isError = false) {
   item.className = `toast${isError ? " error" : ""}`;
   item.textContent = message;
   region.append(item);
-  const timeout = setTimeout(() => item.remove(), 4200);
-  toastTimeouts.push(timeout);
+  setTimeout(() => item.remove(), 4200);
 }
 
 function setSignedIn(isSignedIn) {
@@ -368,26 +367,29 @@ document.querySelector(".dock-actions").addEventListener("click", async (event) 
     toast("Select at least one bot from your fleet first.", true);
     return;
   }
-  if (action === "start" && !audioSelect.value) {
+  if (["start", "start-all"].includes(action) && !audioSelect.value) {
     toast("Upload and select an audio file first.", true);
     return;
   }
 
+  const previousLabel = button.innerHTML;
   button.disabled = true;
+  if (["start", "start-all"].includes(action)) button.querySelector("span").textContent = "Starting…";
+  if (["stop", "stop-all"].includes(action)) button.querySelector("span").textContent = "Stopping…";
   try {
     const data = await api("/api/control", {
       method: "POST",
       body: JSON.stringify({
         action,
         botIds: ["start", "stop"].includes(action) ? [...selectedBots] : undefined,
-        audioId: action === "start" ? audioSelect.value : undefined
+        audioId: ["start", "start-all"].includes(action) ? audioSelect.value : undefined
       })
     });
     const failures = data.results.filter((result) => !result.ok);
     const successes = data.results.length - failures.length;
     if (!data.results.length) toast("No bots are currently connected to voice.");
     else if (failures.length) {
-      toast(`${successes} action${successes === 1 ? "" : "s"} completed; ${failures.length} failed. ${failures[0].error}`, true);
+      toast(`${successes} of ${data.results.length} bots completed; ${failures.length} failed. ${failures[0].error}`, true);
     } else {
       const actionLabel = button.textContent.trim().replace(/^[▶■◖◗⊘◎]\s*/, "");
       toast(`${actionLabel} applied to ${successes} bot${successes === 1 ? "" : "s"}.`);
@@ -397,6 +399,7 @@ document.querySelector(".dock-actions").addEventListener("click", async (event) 
     toast(error.message, true);
   } finally {
     button.disabled = false;
+    button.innerHTML = previousLabel;
   }
 });
 
