@@ -70,6 +70,15 @@
             <div class="audio-preparation-copy"><span id="audio-preparation-label">Choose a track to prepare it for playback.</span><span id="audio-preparation-percent"></span></div>
             <progress id="audio-preparation-progress" max="100" value="0" aria-label="Audio preparation progress"></progress>
           </div>
+          <div class="audio-gain">
+            <label class="audio-gain-heading" for="audio-gain"><span>MASTER GAIN</span><strong id="audio-gain-value">1×</strong></label>
+            <div class="audio-gain-controls">
+              <button class="gain-step" type="button" data-gain-step="-1" aria-label="Decrease master gain">−</button>
+              <input id="audio-gain" type="range" min="0" max="1000" step="1" value="1" aria-label="Master audio gain multiplier">
+              <button class="gain-step" type="button" data-gain-step="1" aria-label="Increase master gain">+</button>
+            </div>
+            <p class="audio-gain-warning">For the next Play audio. Up to 1000× amplification; high levels can still damage hearing or speakers.</p>
+          </div>
         </section>
 
         <section class="control-panel channel-panel">

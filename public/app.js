@@ -5,6 +5,8 @@ const loginError = document.querySelector("#login-error");
 const botList = document.querySelector("#bot-list");
 const audioSelect = document.querySelector("#audio-select");
 const uploadNote = document.querySelector("#upload-note");
+const audioGainInput = document.querySelector("#audio-gain");
+let masterAudioGain = 1;
 let botState = [];
 let audioState = [];
 let lastBotRenderSignature = "";
@@ -160,12 +162,14 @@ function renderAudio() {
   const preparationLabel = document.querySelector("#audio-preparation-label");
   const preparationPercent = document.querySelector("#audio-preparation-percent");
   const preparationProgress = document.querySelector("#audio-preparation-progress");
+  if (document.activeElement !== audioGainInput) audioGainInput.value = String(masterAudioGain);
+  document.querySelector("#audio-gain-value").textContent = `${Number(audioGainInput.value)}×`;
   document.querySelector("#audio-track-count").textContent =
     `${audioState.length} track${audioState.length === 1 ? "" : "s"} uploaded`;
   preparationPanel.classList.toggle("error", preparation?.state === "error");
   preparationProgress.value = preparation?.progress || 0;
   if (preparation?.state === "ready") {
-    preparationLabel.textContent = `${selectedAudio.name} · Ready to play.`;
+    preparationLabel.textContent = `${selectedAudio.name} · Ready to play at ${preparation.gain ?? masterAudioGain}× gain.`;
     preparationPercent.textContent = "100%";
   } else if (preparation?.state === "preparing") {
     preparationLabel.textContent = `${selectedAudio.name} · ${preparation.stage || "Preparing audio for playback."}`;
@@ -208,6 +212,7 @@ async function refreshStatus() {
   const data = await api("/api/status");
   botState = data.bots;
   audioState = data.audio;
+  masterAudioGain = data.masterAudioGain ?? 1;
   appliedFleetChannelId = data.fleetChannelId || "";
   const channelInput = document.querySelector("#fleet-channel-id");
   if (document.activeElement !== channelInput) channelInput.value = appliedFleetChannelId;
@@ -300,8 +305,8 @@ document.querySelector("#audio-file").addEventListener("change", async (event) =
     const data = await api("/api/audio", { method: "POST", body: form });
     await refreshStatus();
     audioSelect.value = data.audio.id;
-    uploadNote.textContent = `Ready to play: ${data.audio.name}`;
-    toast("Audio uploaded and ready.");
+    uploadNote.textContent = `Uploaded ${data.audio.name}; preparing for synchronized playback…`;
+    toast("Audio uploaded. Preparing it for playback.");
   } catch (error) {
     uploadNote.classList.add("error");
     uploadNote.textContent = error.message;
@@ -329,6 +334,41 @@ audioSelect.addEventListener("change", async () => {
     renderAudio();
     toast(error.message, true);
   }
+});
+
+audioGainInput.addEventListener("input", () => {
+  document.querySelector("#audio-gain-value").textContent = `${Number(audioGainInput.value)}×`;
+});
+
+async function saveAudioGain() {
+  const requestedGain = Number(audioGainInput.value);
+  try {
+    const result = await api("/api/audio/gain", {
+      method: "PUT",
+      body: JSON.stringify({ multiplier: requestedGain })
+    });
+    masterAudioGain = result.masterAudioGain;
+    await refreshStatus();
+    const selectedAudio = audioState.find((audio) => audio.id === audioSelect.value);
+    if (selectedAudio) {
+      await api(`/api/audio/${encodeURIComponent(selectedAudio.id)}/prepare`, { method: "POST" });
+      await refreshStatus();
+    }
+    toast(`Master gain set to ${masterAudioGain}×. Audio uses a limiter to reduce clipping.`);
+  } catch (error) {
+    audioGainInput.value = String(masterAudioGain);
+    document.querySelector("#audio-gain-value").textContent = `${masterAudioGain}×`;
+    toast(error.message, true);
+  }
+}
+
+audioGainInput.addEventListener("change", saveAudioGain);
+document.querySelectorAll("[data-gain-step]").forEach((button) => {
+  button.addEventListener("click", () => {
+    audioGainInput.value = String(Math.min(1000, Math.max(0, Number(audioGainInput.value) + Number(button.dataset.gainStep))));
+    document.querySelector("#audio-gain-value").textContent = `${Number(audioGainInput.value)}×`;
+    saveAudioGain();
+  });
 });
 
 document.addEventListener("click", async (event) => {

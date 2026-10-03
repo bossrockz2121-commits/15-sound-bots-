@@ -45,6 +45,12 @@ currently connected to voice.
    the dashboard shows conversion progress, and Play audio reuses that prepared
    output. If conversion stops reporting progress, the dashboard shows an error
    rather than remaining on Preparing indefinitely.
+   The master-gain slider applies from 0× to 1000× on the next playback. The
+   fleet prepares audio for every bot first, then starts all prepared players
+   together in one event-loop pass. Discord network latency can still cause
+   small differences between bots. High gain can damage hearing or speakers;
+   the audio limiter reduces clipping but cannot make extreme levels safe.
+   The selected master gain is held in memory and resets to 1× on service restart.
    Voice-state gateway updates are enabled by the app; no privileged portal
    intent is required for `GuildVoiceStates`.
    A bot can appear in Discord's voice member list before its voice media

@@ -35,6 +35,7 @@ const allowedAudioExtensions = new Set([".aac", ".flac", ".m4a", ".mp3", ".ogg",
 const audioFiles = new Map();
 const audioPreparations = new WeakMap();
 const audioVariantPreparations = new WeakMap();
+let masterAudioGain = 1;
 const sessions = new Map();
 const loginAttempts = new Map();
 const clients = [];
@@ -74,7 +75,8 @@ function readAudioFiles() {
           processedSeconds: 0,
           durationSeconds: null,
           stage: "Select this track to prepare it for playback.",
-          error: null
+          error: null,
+          gain: null
         }
       });
     }
@@ -127,7 +129,7 @@ async function prepareAudioForPlayback(audio, volume, onProgress = () => {}) {
       "-vn",
       "-ac", "2",
       "-ar", "48000",
-      "-af", `volume=${volume}`,
+      "-af", `volume=${volume}:precision=float,alimiter=limit=0.95:attack=5:release=50`,
       "-c:a", "libopus",
       "-threads", "1",
       "-b:a", "128k",
@@ -397,9 +399,32 @@ app.post("/api/logout", requireAuth, (request, response) => {
 app.get("/api/status", requireAuth, (_request, response) => {
   response.json({
     fleetChannelId,
+    masterAudioGain,
     bots: [...bots.values()].map(botSummary),
     audio: [...audioFiles.values()].map(({ id, name, preparation }) => ({ id, name, preparation }))
   });
+});
+
+app.put("/api/audio/gain", requireAuth, (request, response) => {
+  const gain = request.body?.multiplier;
+  if (typeof gain !== "number" || !Number.isFinite(gain) || gain < 0 || gain > 1000) {
+    response.status(400).json({ error: "Master audio gain must be a number between 0 and 1000×." });
+    return;
+  }
+
+  if (gain !== masterAudioGain) {
+    masterAudioGain = gain;
+    for (const audio of audioFiles.values()) {
+      audio.preparation.state = "idle";
+      audio.preparation.progress = 0;
+      audio.preparation.processedSeconds = 0;
+      audio.preparation.durationSeconds = null;
+      audio.preparation.stage = `Gain changed to ${gain}×; select or play this track to prepare it.`;
+      audio.preparation.error = null;
+      audio.preparation.gain = null;
+    }
+  }
+  response.json({ masterAudioGain });
 });
 
 app.post("/api/audio", requireAuth, (request, response, next) => {
@@ -422,46 +447,77 @@ app.post("/api/audio", requireAuth, (request, response, next) => {
         processedSeconds: 0,
         durationSeconds: null,
         stage: "Preparing audio for all configured bot volumes.",
-        error: null
+        error: null,
+        gain: masterAudioGain
       }
     };
     audioFiles.set(record.id, record);
     response.status(201).json({ audio: { id: record.id, name: record.name } });
     setImmediate(() => prepareAudioVariants(record).catch((error) => {
-      record.preparation.state = "error";
-      record.preparation.stage = "Audio preparation failed.";
-      record.preparation.error = error.message;
+      if (record.preparation.gain === masterAudioGain) {
+        record.preparation.state = "error";
+        record.preparation.stage = "Audio preparation failed.";
+        record.preparation.error = error.message;
+      }
       console.error(`Could not prepare audio ${record.name}:`, error);
     }));
   });
 });
 
 function prepareAudioVariants(audio) {
-  if (audio.preparation.state === "ready") return Promise.resolve();
-  const activePreparation = audioVariantPreparations.get(audio);
+  if (!audio.preparation) {
+    audio.preparation = {
+      state: "idle",
+      progress: 0,
+      processedSeconds: 0,
+      durationSeconds: null,
+      stage: "Preparing audio for playback.",
+      error: null,
+      gain: null
+    };
+  }
+  const gain = masterAudioGain;
+  if (audio.preparation.state === "ready" && audio.preparation.gain === gain) return Promise.resolve();
+  let preparations = audioVariantPreparations.get(audio);
+  if (!preparations) {
+    preparations = new Map();
+    audioVariantPreparations.set(audio, preparations);
+  }
+  const activePreparation = preparations.get(gain);
   if (activePreparation) return activePreparation;
-  const preparation = prepareAudioVariantsNow(audio);
-  audioVariantPreparations.set(audio, preparation);
+  const preparation = prepareAudioVariantsNow(audio, gain);
+  preparations.set(gain, preparation);
   return preparation.finally(() => {
-    if (audioVariantPreparations.get(audio) === preparation) audioVariantPreparations.delete(audio);
+    preparations.delete(gain);
+    if (preparations.size === 0) audioVariantPreparations.delete(audio);
   });
 }
 
-async function prepareAudioVariantsNow(audio) {
-  const volumes = [...new Set([...bots.values()].map((runtime) =>
+async function prepareAudioVariantsNow(audio, gain) {
+  const baseVolumes = [...bots.values()].map((runtime) =>
     runtime.config.volume ?? config.defaults?.volume ?? 0.5
-  ))];
-  if (volumes.some((volume) => !Number.isFinite(volume) || volume < 0 || volume > 1)) {
+  );
+  if (baseVolumes.some((volume) => !Number.isFinite(volume) || volume < 0 || volume > 1)) {
     throw new Error("Every configured bot volume must be between 0 and 1.");
   }
+  const volumes = [...new Set(baseVolumes.map((volume) => volume * gain))];
+  if (volumes.some((volume) => !Number.isFinite(volume) || volume < 0 || volume > 1000)) {
+    throw new Error("Configured bot volume multiplied by master gain must be between 0 and 1000×.");
+  }
 
-  audio.preparation.state = "preparing";
-  audio.preparation.error = null;
+  if (gain === masterAudioGain) {
+    audio.preparation.state = "preparing";
+    audio.preparation.error = null;
+    audio.preparation.gain = gain;
+  }
   for (const [index, volume] of volumes.entries()) {
-    audio.preparation.stage = volumes.length > 1
-      ? `Preparing volume ${index + 1} of ${volumes.length}.`
-      : "Optimizing audio for playback.";
+    if (gain === masterAudioGain) {
+      audio.preparation.stage = volumes.length > 1
+        ? `Preparing volume ${index + 1} of ${volumes.length} at ${gain}× gain.`
+        : `Optimizing audio for playback at ${gain}× gain.`;
+    }
     const outputPath = await prepareAudioForPlayback(audio, volume, (progress) => {
+      if (gain !== masterAudioGain) return;
       audio.preparation.progress = Math.floor(((index + progress.progress) / volumes.length) * 100);
       audio.preparation.processedSeconds = progress.processedSeconds;
       audio.preparation.durationSeconds = progress.durationSeconds;
@@ -470,9 +526,11 @@ async function prepareAudioVariantsNow(audio) {
       throw new Error("Audio preparation finished without a playable output file.");
     }
   }
-  audio.preparation.state = "ready";
-  audio.preparation.progress = 100;
-  audio.preparation.stage = "Ready to play.";
+  if (gain === masterAudioGain) {
+    audio.preparation.state = "ready";
+    audio.preparation.progress = 100;
+    audio.preparation.stage = `Ready to play at ${gain}× gain.`;
+  }
 }
 
 app.post("/api/audio/:audioId/prepare", requireAuth, (request, response) => {
@@ -481,18 +539,21 @@ app.post("/api/audio/:audioId/prepare", requireAuth, (request, response) => {
     response.status(404).json({ error: "The selected audio file is no longer available." });
     return;
   }
-  if (audio.preparation.state === "ready") {
+  if (audio.preparation.state === "ready" && audio.preparation.gain === masterAudioGain) {
     response.json({ preparation: audio.preparation });
     return;
   }
-  if (audio.preparation.state !== "preparing") {
+  if (audio.preparation.state !== "preparing" || audio.preparation.gain !== masterAudioGain) {
     audio.preparation.error = null;
     audio.preparation.state = "preparing";
     audio.preparation.progress = 0;
     audio.preparation.processedSeconds = 0;
     audio.preparation.durationSeconds = null;
+    audio.preparation.gain = masterAudioGain;
   }
+  const preparationGain = masterAudioGain;
   prepareAudioVariants(audio).catch((error) => {
+    if (preparationGain !== masterAudioGain) return;
     audio.preparation.state = "error";
     audio.preparation.stage = "Audio preparation failed.";
     audio.preparation.error = error.message;
@@ -797,7 +858,7 @@ async function joinBot(runtime) {
   }
 }
 
-async function startBot(runtime, audio) {
+async function prepareBotPlayback(runtime, audio) {
   if (!audio || !fs.existsSync(audio.filePath)) throw new Error("Upload or select an audio file first.");
   const connection = runtime.voiceConnection;
   if (connection?.state.status !== VoiceConnectionStatus.Ready) {
@@ -812,17 +873,28 @@ async function startBot(runtime, audio) {
     throw new Error(`${runtime.config.name}: the bot needs Speak permission in the selected channel to play audio.`);
   }
   const volume = runtime.config.volume ?? config.defaults?.volume ?? 0.5;
-  if (!Number.isFinite(volume) || volume < 0 || volume > 1) {
-    throw new Error(`${runtime.config.name}: volume must be between 0 and 1.`);
+  const gain = masterAudioGain;
+  if (!Number.isFinite(volume) || volume < 0 || volume > 1 || !Number.isFinite(gain) || gain < 0 || gain > 1000) {
+    throw new Error(`${runtime.config.name}: bot volume must be between 0 and 1 and master gain between 0 and 1000×.`);
   }
   await prepareAudioVariants(audio);
-  const opusFilePath = await prepareAudioForPlayback(audio, volume);
-  if (runtime.player) runtime.player.stop(true);
-
+  if (masterAudioGain !== gain) {
+    throw new Error(`${runtime.config.name}: master gain changed during audio preparation. Click Play audio again.`);
+  }
+  const opusFilePath = await prepareAudioForPlayback(audio, volume * gain);
   const player = createAudioPlayer();
   const resource = createAudioResource(fs.createReadStream(opusFilePath), {
-    inputType: StreamType.OggOpus,
+    inputType: StreamType.OggOpus
   });
+  return { runtime, audio, connection, player, resource };
+}
+
+function startPreparedPlayback(prepared) {
+  const { runtime, audio, connection, player, resource } = prepared;
+  if (runtime.voiceConnection !== connection || connection.state.status !== VoiceConnectionStatus.Ready) {
+    throw new Error(`${runtime.config.name}: voice connection changed while preparing audio. Rejoin voice and try again.`);
+  }
+  if (runtime.player) runtime.player.stop(true);
   connection.subscribe(player);
   runtime.player = player;
   runtime.currentAudio = audio;
@@ -844,6 +916,11 @@ async function startBot(runtime, audio) {
     console.error(`${runtime.config.id}: audio playback failed:`, error);
   });
   player.play(resource);
+}
+
+async function startBot(runtime, audio) {
+  const prepared = await prepareBotPlayback(runtime, audio);
+  startPreparedPlayback(prepared);
 }
 
 function stopBot(runtime) {
@@ -916,22 +993,45 @@ app.post("/api/control", requireAuth, async (request, response) => {
     }
   }
 
-  const results = await Promise.all(targets.map(async (runtime) => {
-    try {
-      if (action === "start-all") await startBot(runtime, audio);
-      if (action === "stop-all") stopPlayback(runtime);
-      if (action === "disconnect-all") stopBot(runtime);
-      if (action === "mute-all") setVoiceFlags(runtime, { muted: true });
-      if (action === "unmute-all") setVoiceFlags(runtime, { muted: false });
-      if (action === "deafen-all") setVoiceFlags(runtime, { deafened: true });
-      if (action === "undeafen-all") setVoiceFlags(runtime, { deafened: false });
-      return { id: runtime.config.id, ok: true, bot: botSummary(runtime) };
-    } catch (error) {
-      const message = explainDiscordAccessError(runtime, error);
-      runtime.error = message;
-      return { id: runtime.config.id, ok: false, error: message, bot: botSummary(runtime) };
-    }
-  }));
+  let results;
+  if (action === "start-all") {
+    const prepared = await Promise.all(targets.map(async (runtime) => {
+      try {
+        return { runtime, playback: await prepareBotPlayback(runtime, audio) };
+      } catch (error) {
+        const message = explainDiscordAccessError(runtime, error);
+        runtime.error = message;
+        return { runtime, error: message };
+      }
+    }));
+    results = prepared.map(({ runtime, playback, error }) => {
+      if (error) return { id: runtime.config.id, ok: false, error, bot: botSummary(runtime) };
+      try {
+        startPreparedPlayback(playback);
+        return { id: runtime.config.id, ok: true, bot: botSummary(runtime) };
+      } catch (startError) {
+        const message = explainDiscordAccessError(runtime, startError);
+        runtime.error = message;
+        return { id: runtime.config.id, ok: false, error: message, bot: botSummary(runtime) };
+      }
+    });
+  } else {
+    results = await Promise.all(targets.map(async (runtime) => {
+      try {
+        if (action === "stop-all") stopPlayback(runtime);
+        if (action === "disconnect-all") stopBot(runtime);
+        if (action === "mute-all") setVoiceFlags(runtime, { muted: true });
+        if (action === "unmute-all") setVoiceFlags(runtime, { muted: false });
+        if (action === "deafen-all") setVoiceFlags(runtime, { deafened: true });
+        if (action === "undeafen-all") setVoiceFlags(runtime, { deafened: false });
+        return { id: runtime.config.id, ok: true, bot: botSummary(runtime) };
+      } catch (error) {
+        const message = explainDiscordAccessError(runtime, error);
+        runtime.error = message;
+        return { id: runtime.config.id, ok: false, error: message, bot: botSummary(runtime) };
+      }
+    }));
+  }
   response.json({ results });
 });
 
