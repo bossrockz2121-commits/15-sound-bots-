@@ -185,12 +185,14 @@ document.querySelector("#refresh-button").addEventListener("click", async () => 
 document.querySelector("#fleet-channel-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const button = document.querySelector("#apply-channel-button");
+  const previousLabel = button.innerHTML;
   const channelId = document.querySelector("#fleet-channel-id").value.trim();
   if (!/^\d{17,20}$/.test(channelId)) {
     toast("Enter a valid Discord voice channel ID (17–20 digits).", true);
     return;
   }
   button.disabled = true;
+  button.querySelector("span").textContent = "Joining…";
   try {
     const result = await api("/api/fleet/channel", {
       method: "PUT",
@@ -198,10 +200,18 @@ document.querySelector("#fleet-channel-form").addEventListener("submit", async (
     });
     appliedFleetChannelId = result.channelId;
     await refreshStatus();
-    toast(`Voice channel applied. ${result.validatedBots} online bots verified; ${result.pendingBots} will use it when online.`);
+    const failures = result.results.filter((bot) => !bot.ok);
+    if (failures.length) {
+      toast(`${result.joined} of ${result.total} bots joined. ${failures[0].name}: ${failures[0].error}`, true);
+    } else if (result.joined === 0) {
+      toast("Channel ID saved, but no bots are online yet. Check the bot tokens in Render.", true);
+    } else {
+      toast(`All ${result.joined} bots joined the voice channel.`);
+    }
   } catch (error) {
     toast(error.message, true);
   } finally {
+    button.innerHTML = previousLabel;
     button.disabled = false;
   }
 });
@@ -239,7 +249,7 @@ document.querySelector(".dock-actions").addEventListener("click", async (event) 
   if (action === "start-all") {
     const enteredChannelId = document.querySelector("#fleet-channel-id").value.trim();
     if (!enteredChannelId || enteredChannelId !== appliedFleetChannelId) {
-      toast("Enter the shared voice channel ID and apply it to all bots first.", true);
+      toast("Enter the voice channel ID and click Join all bots first.", true);
       return;
     }
   }

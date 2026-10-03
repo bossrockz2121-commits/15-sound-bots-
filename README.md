@@ -22,15 +22,17 @@ currently connected to voice.
    `npm install` and **Start Command** `npm start`. Render supplies `PORT`;
    `/health` is the health-check endpoint.
 5. Open the service URL, sign in with `DASHBOARD_PASSWORD`, enter one Discord
-   voice-channel ID, and apply it to the fleet. The channel's server is detected
-   automatically; every token-configured bot must be invited to that server.
-6. Upload one sound and use **Start all bots**. All bots with configured tokens
-   are started in parallel using that audio and channel. **Stop all bots**
+   voice-channel ID, and click **Join all bots**. This saves the ID and joins
+   every online, token-configured bot in parallel. The channel's server is
+   detected automatically; every bot must be invited to that server and have
+   View Channel and Connect permissions.
+6. Upload one sound and use **Start all bots** to play it after the bots have
+   joined. Audio playback also requires Speak permission. **Stop all bots**
    disconnects the entire connected fleet. Mute/Unmute/Deafen/Undeafen apply to
    every bot currently connected to voice. There is no per-bot selection.
 7. If a bot does not join voice, check its card for the specific connection
    error. Confirm its token is correct, it is invited to the selected server,
-   and it has View Channel, Connect, and Speak permissions in the channel.
+   and it has View Channel and Connect permissions in the channel.
    Voice-state gateway updates are enabled by the app; no privileged portal
    intent is required for `GuildVoiceStates`.
 

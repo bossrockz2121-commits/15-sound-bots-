@@ -256,8 +256,8 @@ app.put("/api/fleet/channel", requireAuth, async (request, response) => {
           throw new Error("The ID is not a voice channel this bot can access.");
         }
         const permissions = channel.permissionsFor(runtime.client.user);
-        if (!permissions?.has(["ViewChannel", "Connect", "Speak"])) {
-          throw new Error("The bot needs View Channel, Connect, and Speak permissions.");
+        if (!permissions?.has(["ViewChannel", "Connect"])) {
+          throw new Error("The bot needs View Channel and Connect permissions.");
         }
         return { runtime, guildId: channel.guild.id };
       } catch (error) {
@@ -276,25 +276,59 @@ app.put("/api/fleet/channel", requireAuth, async (request, response) => {
     fleetChannelId = channelId;
     const guildIds = new Map(validations.map(({ runtime, guildId }) => [runtime.config.id, guildId]));
     for (const runtime of bots.values()) {
-      if (runtime.voiceConnection) stopBot(runtime);
       runtime.channelId = channelId;
       runtime.guildId = guildIds.get(runtime.config.id) || "";
       runtime.error = null;
     }
+
+    const results = await Promise.all([...bots.values()].map(async (runtime) => {
+      try {
+        await joinBot(runtime);
+        return { id: runtime.config.id, name: runtime.config.name, ok: true, bot: botSummary(runtime) };
+      } catch (error) {
+        runtime.error = error.message;
+        return { id: runtime.config.id, name: runtime.config.name, ok: false, error: error.message, bot: botSummary(runtime) };
+      }
+    }));
+    const joined = results.filter((result) => result.ok).length;
     response.json({
       channelId: fleetChannelId,
-      validatedBots: validations.length,
-      pendingBots: bots.size - validations.length
+      joined,
+      total: results.length,
+      results
     });
   } catch (error) {
     sendError(response, error, error.status || 400);
   }
 });
 
-async function startBot(runtime, audio) {
-  if (!runtime.client?.isReady()) throw new Error(`${runtime.config.name} is not online.`);
+async function waitForBotReady(runtime) {
+  if (runtime.client?.isReady()) return;
+  if (!runtime.client) {
+    throw new Error(`${runtime.config.name}: bot token is missing; add ${runtime.config.tokenEnv} in Render.`);
+  }
+
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error(`${runtime.config.name}: Discord login timed out. Check the bot token and Render logs.`));
+    }, 30_000);
+    const onReady = () => {
+      cleanup();
+      resolve();
+    };
+    const cleanup = () => {
+      clearTimeout(timeout);
+      runtime.client.removeListener("ready", onReady);
+    };
+    runtime.client.once("ready", onReady);
+    if (runtime.client.isReady()) onReady();
+  });
+}
+
+async function joinBot(runtime) {
+  await waitForBotReady(runtime);
   if (!runtime.channelId) throw new Error(`${runtime.config.name}: set the shared voice channel ID first.`);
-  if (!audio || !fs.existsSync(audio.filePath)) throw new Error("Upload or select an audio file first.");
 
   const channel = await runtime.client.channels.fetch(runtime.channelId);
   if (!channel || channel.type !== ChannelType.GuildVoice) {
@@ -302,14 +336,24 @@ async function startBot(runtime, audio) {
   }
   const guild = channel.guild;
   const permissions = channel.permissionsFor(runtime.client.user);
-  if (!permissions?.has(["ViewChannel", "Connect", "Speak"])) {
-    throw new Error(`${runtime.config.name}: the bot needs View Channel, Connect, and Speak permissions in the selected channel.`);
+  if (!permissions?.has(["ViewChannel", "Connect"])) {
+    throw new Error(`${runtime.config.name}: the bot needs View Channel and Connect permissions in the selected channel.`);
+  }
+
+  if (
+    runtime.voiceConnection?.joinConfig?.channelId === channel.id &&
+    runtime.voiceConnection.state.status === VoiceConnectionStatus.Ready
+  ) {
+    runtime.guildId = guild.id;
+    runtime.status = "connected";
+    return runtime.voiceConnection;
   }
 
   stopBot(runtime);
   const joinOptions = {
     channelId: channel.id,
     guildId: guild.id,
+    group: runtime.config.id,
     adapterCreator: guild.voiceAdapterCreator,
     selfDeaf: runtime.deafened,
     selfMute: runtime.muted
@@ -337,19 +381,7 @@ async function startBot(runtime, audio) {
   });
   try {
     await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
-    const player = createAudioPlayer();
-    const volume = runtime.config.volume ?? config.defaults?.volume ?? 0.5;
-    if (!Number.isFinite(volume) || volume < 0 || volume > 1) {
-      throw new Error(`${runtime.config.name}: volume must be between 0 and 1.`);
-    }
-
-    const resource = createAudioResource(audio.filePath, { inlineVolume: true });
-    resource.volume.setVolume(volume);
-    connection.subscribe(player);
-    player.play(resource);
-    runtime.player = player;
-    runtime.currentAudio = audio;
-    runtime.playing = true;
+    runtime.guildId = guild.id;
     runtime.status = "connected";
     runtime.error = null;
 
@@ -361,18 +393,11 @@ async function startBot(runtime, audio) {
         runtime.player = null;
       }
     });
-    player.on(AudioPlayerStatus.Idle, () => {
-      if (runtime.player === player) runtime.playing = false;
-    });
-    player.on("error", (error) => {
-      runtime.error = error.message;
-      runtime.playing = false;
-      console.error(`${runtime.config.id}: audio playback failed:`, error);
-    });
+    return connection;
   } catch (error) {
     const connectionError = new Error(
       `${runtime.config.name}: voice connection did not become ready (${connection.state.status}). ` +
-      `Verify the channel ID, View Channel/Connect/Speak permissions, Discord voice connectivity, ` +
+      `Verify the channel ID, View Channel/Connect permissions, Discord voice connectivity, ` +
       `and that the bot is online. ${error.message}`
     );
     connection.destroy();
@@ -381,6 +406,39 @@ async function startBot(runtime, audio) {
     runtime.error = connectionError.message;
     throw connectionError;
   }
+}
+
+async function startBot(runtime, audio) {
+  if (!audio || !fs.existsSync(audio.filePath)) throw new Error("Upload or select an audio file first.");
+  const connection = await joinBot(runtime);
+  const channel = await runtime.client.channels.fetch(runtime.channelId);
+  if (!channel?.permissionsFor(runtime.client.user)?.has("Speak")) {
+    throw new Error(`${runtime.config.name}: the bot needs Speak permission in the selected channel to play audio.`);
+  }
+  if (runtime.player) runtime.player.stop(true);
+
+  const player = createAudioPlayer();
+  const volume = runtime.config.volume ?? config.defaults?.volume ?? 0.5;
+  if (!Number.isFinite(volume) || volume < 0 || volume > 1) {
+    throw new Error(`${runtime.config.name}: volume must be between 0 and 1.`);
+  }
+  const resource = createAudioResource(audio.filePath, { inlineVolume: true });
+  resource.volume.setVolume(volume);
+  connection.subscribe(player);
+  player.play(resource);
+  runtime.player = player;
+  runtime.currentAudio = audio;
+  runtime.playing = true;
+  runtime.status = "connected";
+  runtime.error = null;
+  player.on(AudioPlayerStatus.Idle, () => {
+    if (runtime.player === player) runtime.playing = false;
+  });
+  player.on("error", (error) => {
+    runtime.error = error.message;
+    runtime.playing = false;
+    console.error(`${runtime.config.id}: audio playback failed:`, error);
+  });
 }
 
 function stopBot(runtime) {
