@@ -73,6 +73,8 @@ for (const bot of config.bots) {
   bots.set(bot.id, {
     config: bot,
     client: null,
+    gatewayState: process.env[bot.tokenEnv] ? "connecting" : "token_missing",
+    gatewayError: null,
     status: process.env[bot.tokenEnv] ? "connecting" : "token_missing",
     voiceConnection: null,
     player: null,
@@ -174,6 +176,8 @@ function botSummary(runtime) {
     name: runtime.config.name,
     hasToken: Boolean(process.env[runtime.config.tokenEnv]),
     online: Boolean(runtime.client?.isReady()),
+    gatewayState: runtime.gatewayState,
+    gatewayError: runtime.gatewayError,
     status: runtime.status,
     guildId: runtime.guildId,
     channelId: runtime.channelId,
@@ -366,10 +370,12 @@ function waitForVoiceReady(connection, runtime) {
         resolve(connection);
       } else if (newState.status === VoiceConnectionStatus.Destroyed) {
         cleanup();
-        const details = newState.closeCode
-          ? ` Discord voice WebSocket closed with code ${newState.closeCode}.`
-          : "";
-        reject(new Error(`${runtime.config.name}: Discord voice connection changed to ${newState.status}.${details}`));
+        const gateway = runtime.gatewayError ? ` Discord gateway: ${runtime.gatewayError}.` : "";
+        const network = runtime.voiceNetworkStage ? ` Last voice network stage: ${runtime.voiceNetworkStage}.` : "";
+        const reason = runtime.gatewayError
+          ? ""
+          : " No gateway disconnect was recorded before the voice connection was destroyed.";
+        reject(new Error(`${runtime.config.name}: Discord voice connection changed to ${newState.status}.${reason}${gateway}${network}`));
       } else if (newState.status === VoiceConnectionStatus.Disconnected) {
         cleanup();
         reject(new Error(`${runtime.config.name}: Discord could not start the voice connection (adapter unavailable).`));
@@ -441,6 +447,17 @@ async function joinBot(runtime) {
   const connection = joinVoiceChannel(joinOptions);
   runtime.voiceConnection = connection;
   runtime.status = "connecting";
+  if (connection.state.status === VoiceConnectionStatus.Destroyed) {
+    const error = new Error(
+      `${runtime.config.name}: Discord rejected the initial voice join because its gateway adapter could not send the request. ` +
+      "Check the bot's Discord gateway connection, then click Join VC again."
+    );
+    runtime.voiceConnection = null;
+    runtime.voiceNetworkStage = null;
+    runtime.status = runtime.client?.isReady() ? "ready" : "error";
+    runtime.error = error.message;
+    throw error;
+  }
   connection.on("stateChange", (_oldState, newState) => {
     if (runtime.voiceConnection !== connection) return;
     console.info(`${runtime.config.id}: voice connection state is ${newState.status}.`);
@@ -466,6 +483,10 @@ async function joinBot(runtime) {
       runtime.error = null;
     } else if (newState.status === VoiceConnectionStatus.Connecting || newState.status === VoiceConnectionStatus.Signalling) {
       runtime.status = "connecting";
+    } else if (newState.status === VoiceConnectionStatus.Destroyed) {
+      runtime.status = runtime.client?.isReady() ? "ready" : "error";
+      runtime.playing = false;
+      runtime.error = `${runtime.config.name}: Discord voice connection was destroyed. ${runtime.gatewayError || "Check the Discord gateway connection."}`;
     } else if (newState.status === VoiceConnectionStatus.Disconnected) {
       runtime.status = "disconnected";
       runtime.playing = false;
@@ -690,6 +711,8 @@ function connectDiscordBot(runtime) {
     };
   });
   client.once("ready", () => {
+    runtime.gatewayState = "ready";
+    runtime.gatewayError = null;
     runtime.status = "ready";
     runtime.error = null;
     console.log(`${runtime.config.name} logged in as ${client.user.tag}.`);
@@ -707,6 +730,33 @@ function connectDiscordBot(runtime) {
         console.error(`${runtime.config.name} could not auto-start:`, error);
       });
     }
+  });
+  client.on("shardDisconnect", (closeEvent, shardId) => {
+    const closeDetail = closeEvent.reason
+      ? `gateway shard ${shardId} disconnected (WebSocket close ${closeEvent.code}: ${closeEvent.reason})`
+      : `gateway shard ${shardId} disconnected (WebSocket close ${closeEvent.code})`;
+    runtime.gatewayState = "disconnected";
+    runtime.gatewayError = closeDetail;
+    if (runtime.voiceConnection) {
+      runtime.status = "error";
+      runtime.error = `${runtime.config.name}: ${closeDetail}; Discord destroyed the voice adapter.`;
+    }
+    console.error(`${runtime.config.id}: ${closeDetail}.`);
+  });
+  client.on("shardReconnecting", (shardId) => {
+    runtime.gatewayState = "reconnecting";
+    console.warn(`${runtime.config.id}: Discord gateway shard ${shardId} is reconnecting.`);
+  });
+  client.on("shardReady", (shardId) => {
+    runtime.gatewayState = "ready";
+    runtime.gatewayError = null;
+    if (runtime.client?.isReady() && !runtime.voiceConnection) runtime.status = "ready";
+    console.info(`${runtime.config.id}: Discord gateway shard ${shardId} is ready.`);
+  });
+  client.on("shardError", (error, shardId) => {
+    runtime.gatewayError = `gateway shard ${shardId} error: ${error.message}`;
+    runtime.error = `${runtime.config.name}: ${runtime.gatewayError}`;
+    console.error(`${runtime.config.id}: ${runtime.gatewayError}`);
   });
   client.on("error", (error) => {
     runtime.status = "error";

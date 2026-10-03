@@ -28,8 +28,8 @@ currently connected to voice.
    View Channel and Connect permissions. A problem with one bot no longer
    blocks the other bots; failed bots show their individual error in the
    dashboard.
-6. Use the single control row at the bottom: **Start** plays the selected track,
-   **Stop** stops audio without leaving voice, **Join VC** joins the selected
+6. Use the single control row at the bottom: **Play audio** plays the selected track,
+   **Stop audio** stops playback without leaving voice, **Join VC** joins the selected
    channel, and **Disconnect VC** leaves it. Mute/Unmute/Deafen/Undeafen apply
    fleet-wide. Audio playback also requires Speak permission.
    Joining and disconnecting are user-controlled; the app does not automatically
@@ -43,6 +43,10 @@ currently connected to voice.
    connection alive rather than disconnecting it at timeout. If it remains
    stuck in `connecting`, use **Disconnect VC** to cancel it, then check
    the host's outbound Discord voice connectivity before manually joining again.
+   If a connection is `destroyed`, check the bot card and Render logs for the
+   Discord gateway shard close code. The voice adapter is destroyed when its
+   gateway shard disconnects; confirm each token is used by one running service
+   and check Render's gateway/WebSocket connection and restart logs.
    If it remains in `signalling`, the bot card identifies whether Discord has
    sent the bot voice-state update and voice-server update, plus the reported
    voice endpoint and the voice library's exact networking stage. The app uses

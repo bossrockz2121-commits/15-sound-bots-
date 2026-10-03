@@ -112,6 +112,12 @@ function renderBotCards() {
       error.textContent = bot.error;
       controls.append(error);
     }
+    if (bot.gatewayError && bot.status !== "error") {
+      const gatewayError = document.createElement("p");
+      gatewayError.className = "bot-error";
+      gatewayError.textContent = bot.gatewayError;
+      controls.append(gatewayError);
+    }
 
     const topLine = document.createElement("div");
     topLine.className = "bot-topline";
@@ -307,7 +313,7 @@ document.addEventListener("click", async (event) => {
 
   const previousLabel = button.innerHTML;
   button.disabled = true;
-  if (action === "start-all") button.querySelector("span").textContent = "Starting…";
+  if (action === "start-all") button.querySelector("span").textContent = "Playing…";
   if (action === "stop-all") button.querySelector("span").textContent = "Stopping…";
   if (action === "disconnect-all") button.querySelector("span").textContent = "Leaving…";
   try {
