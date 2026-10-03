@@ -161,6 +161,7 @@ function botSummary(runtime) {
     deafened: runtime.deafened,
     playing: runtime.playing,
     audioName: runtime.currentAudio?.name || null,
+    voiceState: runtime.voiceConnection?.state?.status || null,
     error: runtime.error
   };
 }
@@ -316,6 +317,24 @@ async function startBot(runtime, audio) {
   const connection = joinVoiceChannel(joinOptions);
   runtime.voiceConnection = connection;
   runtime.status = "connecting";
+  connection.on("stateChange", (_oldState, newState) => {
+    if (runtime.voiceConnection !== connection) return;
+    if (newState.status === VoiceConnectionStatus.Ready) {
+      runtime.status = "connected";
+      runtime.error = null;
+    } else if (newState.status === VoiceConnectionStatus.Connecting || newState.status === VoiceConnectionStatus.Signalling) {
+      runtime.status = "connecting";
+    } else if (newState.status === VoiceConnectionStatus.Disconnected) {
+      runtime.status = "disconnected";
+      runtime.playing = false;
+      runtime.error = `${runtime.config.name}: Discord disconnected the voice session. Check the channel permissions and voice connection logs.`;
+    }
+  });
+  connection.on("error", (error) => {
+    if (runtime.voiceConnection !== connection) return;
+    runtime.error = `Voice connection error: ${error.message}`;
+    console.error(`${runtime.config.id}: voice connection error:`, error);
+  });
   try {
     await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
     const player = createAudioPlayer();
@@ -351,10 +370,16 @@ async function startBot(runtime, audio) {
       console.error(`${runtime.config.id}: audio playback failed:`, error);
     });
   } catch (error) {
+    const connectionError = new Error(
+      `${runtime.config.name}: voice connection did not become ready (${connection.state.status}). ` +
+      `Verify the channel ID, View Channel/Connect/Speak permissions, Discord voice connectivity, ` +
+      `and that the bot is online. ${error.message}`
+    );
     connection.destroy();
     runtime.voiceConnection = null;
     runtime.status = runtime.client?.isReady() ? "ready" : "error";
-    throw error;
+    runtime.error = connectionError.message;
+    throw connectionError;
   }
 }
 
@@ -454,7 +479,9 @@ server.listen(port, "0.0.0.0", () => {
 function connectDiscordBot(runtime) {
   const token = process.env[runtime.config.tokenEnv];
   if (!token) return;
-  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+  const client = new Client({
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates]
+  });
   runtime.client = client;
   clients.push(client);
   client.once("ready", () => {

@@ -28,6 +28,11 @@ currently connected to voice.
    are started in parallel using that audio and channel. **Stop all bots**
    disconnects the entire connected fleet. Mute/Unmute/Deafen/Undeafen apply to
    every bot currently connected to voice. There is no per-bot selection.
+7. If a bot does not join voice, check its card for the specific connection
+   error. Confirm its token is correct, it is invited to the selected server,
+   and it has View Channel, Connect, and Speak permissions in the channel.
+   Voice-state gateway updates are enabled by the app; no privileged portal
+   intent is required for `GuildVoiceStates`.
 
 Bots with tokens connect to Discord when the service starts. Slots without a
 token remain visible but offline and are skipped by fleet start. A channel

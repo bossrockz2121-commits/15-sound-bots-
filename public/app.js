@@ -78,7 +78,10 @@ function renderBotCards() {
     controls.className = "bot-state-details";
     const connectionState = document.createElement("span");
     connectionState.className = "bot-state-detail";
-    connectionState.textContent = bot.playing ? "Playing audio" : (bot.status === "connected" ? "In voice channel" : "Not in voice");
+    const voiceState = bot.voiceState ? ` · ${bot.voiceState}` : "";
+    connectionState.textContent = bot.playing
+      ? `Playing audio${voiceState}`
+      : (bot.status === "connected" ? `In voice channel${voiceState}` : `Not in voice${voiceState}`);
     const audioStateText = document.createElement("span");
     audioStateText.className = "bot-state-detail";
     audioStateText.textContent = bot.audioName ? `♪ ${bot.audioName}` : (bot.channelId ? `Channel · ${bot.channelId}` : "No voice channel ID");
