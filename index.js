@@ -34,6 +34,7 @@ fs.mkdirSync(audioDirectory, { recursive: true });
 const allowedAudioExtensions = new Set([".aac", ".flac", ".m4a", ".mp3", ".ogg", ".opus", ".wav", ".webm"]);
 const audioFiles = new Map();
 const audioPreparations = new WeakMap();
+const audioVariantPreparations = new WeakMap();
 const sessions = new Map();
 const loginAttempts = new Map();
 const clients = [];
@@ -44,6 +45,7 @@ const app = express();
 const port = Number(process.env.PORT || 3000);
 const sessionLifetimeMs = 12 * 60 * 60 * 1000;
 const voiceReadyTimeoutMs = 45_000;
+const audioProgressTimeoutMs = 30_000;
 const voiceNetworkStages = [
   "opening voice WebSocket",
   "identifying with voice server",
@@ -65,7 +67,15 @@ function readAudioFiles() {
       audioFiles.set(fileName, {
         id: fileName,
         name: fileName.replace(/^[0-9a-f-]{36}-/i, ""),
-        filePath
+        filePath,
+        preparation: {
+          state: "idle",
+          progress: 0,
+          processedSeconds: 0,
+          durationSeconds: null,
+          stage: "Select this track to prepare it for playback.",
+          error: null
+        }
       });
     }
   }
@@ -73,7 +83,7 @@ function readAudioFiles() {
 
 readAudioFiles();
 
-async function prepareAudioForPlayback(audio, volume) {
+async function prepareAudioForPlayback(audio, volume, onProgress = () => {}) {
   if (!audio || !fs.existsSync(audio.filePath)) {
     throw new Error("Upload or select an audio file first.");
   }
@@ -86,21 +96,30 @@ async function prepareAudioForPlayback(audio, volume) {
     audioPreparations.set(audio, preparations);
   }
   const inProgress = preparations.get(volume);
-  if (inProgress) return inProgress;
+  if (inProgress) {
+    onProgress({ progress: 0, processedSeconds: 0, durationSeconds: null });
+    return inProgress;
+  }
 
   const sourceStats = fs.statSync(audio.filePath);
   const cacheId = crypto.createHash("sha256")
     .update(`${audio.id}:${sourceStats.size}:${sourceStats.mtimeMs}:${volume}`)
     .digest("hex");
   const outputPath = path.join(opusCacheDirectory, `${cacheId}.ogg`);
-  if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) return outputPath;
+  if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+    onProgress({ progress: 1, processedSeconds: 0, durationSeconds: null });
+    return outputPath;
+  }
 
   const preparation = new Promise((resolve, reject) => {
     fs.mkdirSync(opusCacheDirectory, { recursive: true });
     const temporaryPath = path.join(opusCacheDirectory, `${cacheId}-${crypto.randomUUID()}.tmp.ogg`);
     const ffmpeg = spawn(ffmpegPath, [
       "-hide_banner",
-      "-loglevel", "error",
+      "-loglevel", "info",
+      "-stats_period", "0.5",
+      "-progress", "pipe:1",
+      "-nostats",
       "-nostdin",
       "-y",
       "-i", audio.filePath,
@@ -115,12 +134,23 @@ async function prepareAudioForPlayback(audio, volume) {
       "-application", "audio",
       "-f", "ogg",
       temporaryPath
-    ], { stdio: ["ignore", "ignore", "pipe"] });
+    ], { stdio: ["ignore", "pipe", "pipe"] });
     let ffmpegError = "";
+    let progressOutput = "";
+    let durationSeconds = null;
     let settled = false;
+    let progressTimeout;
+    const refreshProgressTimeout = () => {
+      clearTimeout(progressTimeout);
+      progressTimeout = setTimeout(() => {
+        ffmpeg.kill();
+        fail(new Error("Audio conversion stopped reporting progress for 30 seconds. Try a shorter or standard MP3/WAV file."));
+      }, audioProgressTimeoutMs);
+    };
     const fail = (error) => {
       if (settled) return;
       settled = true;
+      clearTimeout(progressTimeout);
       try {
         fs.rmSync(temporaryPath, { force: true });
       } catch (cleanupError) {
@@ -129,15 +159,40 @@ async function prepareAudioForPlayback(audio, volume) {
       reject(error);
     };
 
+    ffmpeg.stdout.setEncoding("utf8");
+    ffmpeg.stdout.on("data", (chunk) => {
+      refreshProgressTimeout();
+      progressOutput += chunk;
+      const lines = progressOutput.split(/\r?\n/);
+      progressOutput = lines.pop() || "";
+      for (const line of lines) {
+        const [key, value] = line.split("=", 2);
+        if (key === "out_time_ms" && durationSeconds) {
+          const processedSeconds = Number(value) / 1_000_000;
+          if (Number.isFinite(processedSeconds)) {
+            onProgress({
+              progress: Math.min(0.99, processedSeconds / durationSeconds),
+              processedSeconds,
+              durationSeconds
+            });
+          }
+        }
+      }
+    });
     ffmpeg.stderr.setEncoding("utf8");
     ffmpeg.stderr.on("data", (chunk) => {
       ffmpegError = `${ffmpegError}${chunk}`.slice(-4000);
+      const duration = ffmpegError.match(/Duration:\s*(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/);
+      if (duration) {
+        durationSeconds = Number(duration[1]) * 3600 + Number(duration[2]) * 60 + Number(duration[3]);
+      }
     });
     ffmpeg.once("error", (error) => {
       fail(new Error(`FFmpeg could not prepare this audio file: ${error.message}`));
     });
     ffmpeg.once("close", (code) => {
       if (settled) return;
+      clearTimeout(progressTimeout);
       if (code !== 0) {
         fail(new Error(`FFmpeg could not convert this audio file${ffmpegError.trim() ? `: ${ffmpegError.trim()}` : ` (exit code ${code})`}`));
         return;
@@ -148,11 +203,13 @@ async function prepareAudioForPlayback(audio, volume) {
         }
         fs.renameSync(temporaryPath, outputPath);
         settled = true;
+        onProgress({ progress: 1, processedSeconds: durationSeconds || 0, durationSeconds });
         resolve(outputPath);
       } catch (error) {
         fail(new Error(`Could not cache the converted audio file: ${error.message}`));
       }
     });
+    refreshProgressTimeout();
   });
   preparations.set(volume, preparation);
   try {
@@ -341,7 +398,7 @@ app.get("/api/status", requireAuth, (_request, response) => {
   response.json({
     fleetChannelId,
     bots: [...bots.values()].map(botSummary),
-    audio: [...audioFiles.values()].map(({ id, name }) => ({ id, name }))
+    audio: [...audioFiles.values()].map(({ id, name, preparation }) => ({ id, name, preparation }))
   });
 });
 
@@ -358,11 +415,90 @@ app.post("/api/audio", requireAuth, (request, response, next) => {
     const record = {
       id: request.file.filename,
       name: request.file.originalname,
-      filePath: request.file.path
+      filePath: request.file.path,
+      preparation: {
+        state: "preparing",
+        progress: 0,
+        processedSeconds: 0,
+        durationSeconds: null,
+        stage: "Preparing audio for all configured bot volumes.",
+        error: null
+      }
     };
     audioFiles.set(record.id, record);
     response.status(201).json({ audio: { id: record.id, name: record.name } });
+    setImmediate(() => prepareAudioVariants(record).catch((error) => {
+      record.preparation.state = "error";
+      record.preparation.stage = "Audio preparation failed.";
+      record.preparation.error = error.message;
+      console.error(`Could not prepare audio ${record.name}:`, error);
+    }));
   });
+});
+
+function prepareAudioVariants(audio) {
+  if (audio.preparation.state === "ready") return Promise.resolve();
+  const activePreparation = audioVariantPreparations.get(audio);
+  if (activePreparation) return activePreparation;
+  const preparation = prepareAudioVariantsNow(audio);
+  audioVariantPreparations.set(audio, preparation);
+  return preparation.finally(() => {
+    if (audioVariantPreparations.get(audio) === preparation) audioVariantPreparations.delete(audio);
+  });
+}
+
+async function prepareAudioVariantsNow(audio) {
+  const volumes = [...new Set([...bots.values()].map((runtime) =>
+    runtime.config.volume ?? config.defaults?.volume ?? 0.5
+  ))];
+  if (volumes.some((volume) => !Number.isFinite(volume) || volume < 0 || volume > 1)) {
+    throw new Error("Every configured bot volume must be between 0 and 1.");
+  }
+
+  audio.preparation.state = "preparing";
+  audio.preparation.error = null;
+  for (const [index, volume] of volumes.entries()) {
+    audio.preparation.stage = volumes.length > 1
+      ? `Preparing volume ${index + 1} of ${volumes.length}.`
+      : "Optimizing audio for playback.";
+    const outputPath = await prepareAudioForPlayback(audio, volume, (progress) => {
+      audio.preparation.progress = Math.floor(((index + progress.progress) / volumes.length) * 100);
+      audio.preparation.processedSeconds = progress.processedSeconds;
+      audio.preparation.durationSeconds = progress.durationSeconds;
+    });
+    if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size === 0) {
+      throw new Error("Audio preparation finished without a playable output file.");
+    }
+  }
+  audio.preparation.state = "ready";
+  audio.preparation.progress = 100;
+  audio.preparation.stage = "Ready to play.";
+}
+
+app.post("/api/audio/:audioId/prepare", requireAuth, (request, response) => {
+  const audio = audioFiles.get(request.params.audioId);
+  if (!audio) {
+    response.status(404).json({ error: "The selected audio file is no longer available." });
+    return;
+  }
+  if (audio.preparation.state === "ready") {
+    response.json({ preparation: audio.preparation });
+    return;
+  }
+  if (audio.preparation.state !== "preparing") {
+    audio.preparation.error = null;
+    audio.preparation.state = "preparing";
+    audio.preparation.progress = 0;
+    audio.preparation.processedSeconds = 0;
+    audio.preparation.durationSeconds = null;
+  }
+  prepareAudioVariants(audio).catch((error) => {
+    audio.preparation.state = "error";
+    audio.preparation.stage = "Audio preparation failed.";
+    audio.preparation.error = error.message;
+    console.error(`Could not prepare audio ${audio.name}:`, error);
+  });
+  response.status(202).json({ preparation: audio.preparation });
 });
 
 app.put("/api/fleet/channel", requireAuth, async (request, response) => {
@@ -679,6 +815,7 @@ async function startBot(runtime, audio) {
   if (!Number.isFinite(volume) || volume < 0 || volume > 1) {
     throw new Error(`${runtime.config.name}: volume must be between 0 and 1.`);
   }
+  await prepareAudioVariants(audio);
   const opusFilePath = await prepareAudioForPlayback(audio, volume);
   if (runtime.player) runtime.player.stop(true);
 

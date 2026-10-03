@@ -154,6 +154,39 @@ function renderAudio() {
     audioSelect.append(option);
   });
   audioSelect.value = audioState.some((audio) => audio.id === selected) ? selected : (audioState[0]?.id || "");
+  const selectedAudio = audioState.find((audio) => audio.id === audioSelect.value);
+  const preparation = selectedAudio?.preparation;
+  const preparationPanel = document.querySelector("#audio-preparation");
+  const preparationLabel = document.querySelector("#audio-preparation-label");
+  const preparationPercent = document.querySelector("#audio-preparation-percent");
+  const preparationProgress = document.querySelector("#audio-preparation-progress");
+  document.querySelector("#audio-track-count").textContent =
+    `${audioState.length} track${audioState.length === 1 ? "" : "s"} uploaded`;
+  preparationPanel.classList.toggle("error", preparation?.state === "error");
+  preparationProgress.value = preparation?.progress || 0;
+  if (preparation?.state === "ready") {
+    preparationLabel.textContent = `${selectedAudio.name} · Ready to play.`;
+    preparationPercent.textContent = "100%";
+  } else if (preparation?.state === "preparing") {
+    preparationLabel.textContent = `${selectedAudio.name} · ${preparation.stage || "Preparing audio for playback."}`;
+    preparationPercent.textContent = `${preparation.progress || 0}%`;
+  } else if (preparation?.state === "error") {
+    preparationLabel.textContent = preparation.error || "Audio preparation failed.";
+    preparationPercent.textContent = "FAILED";
+  } else if (selectedAudio) {
+    preparationLabel.textContent = `${selectedAudio.name} · Select this track to prepare it for playback.`;
+    preparationPercent.textContent = "";
+  } else {
+    preparationLabel.textContent = "Upload and select a track to prepare it for playback.";
+    preparationPercent.textContent = "";
+  }
+
+  const playButton = document.querySelector('[data-action="start-all"]');
+  if (playButton.disabled) {
+    playButton.querySelector("span").textContent = preparation?.state === "preparing"
+      ? `Preparing ${preparation.progress || 0}%…`
+      : "Starting…";
+  }
 }
 
 function updateMetrics() {
@@ -278,6 +311,26 @@ document.querySelector("#audio-file").addEventListener("change", async (event) =
   }
 });
 
+audioSelect.addEventListener("change", async () => {
+  const audio = audioState.find((item) => item.id === audioSelect.value);
+  if (!audio || audio.preparation?.state === "ready" || audio.preparation?.state === "preparing") return;
+  audio.preparation = {
+    state: "preparing",
+    progress: 0,
+    stage: "Starting audio preparation.",
+    error: null
+  };
+  renderAudio();
+  try {
+    await api(`/api/audio/${encodeURIComponent(audio.id)}/prepare`, { method: "POST" });
+  } catch (error) {
+    audio.preparation.state = "error";
+    audio.preparation.error = error.message;
+    renderAudio();
+    toast(error.message, true);
+  }
+});
+
 document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-action]");
   if (!button) return;
@@ -330,10 +383,28 @@ document.addEventListener("click", async (event) => {
 
   const previousLabel = button.innerHTML;
   button.disabled = true;
-  if (action === "start-all") button.querySelector("span").textContent = "Preparing…";
+  if (action === "start-all") {
+    button.querySelector("span").textContent = "Preparing…";
+    const selectedAudio = audioState.find((audio) => audio.id === audioSelect.value);
+    if (selectedAudio && selectedAudio.preparation.state !== "ready") {
+      selectedAudio.preparation.state = "preparing";
+      selectedAudio.preparation.progress = 0;
+      selectedAudio.preparation.stage = "Starting audio preparation.";
+      selectedAudio.preparation.error = null;
+      renderAudio();
+    }
+  }
   if (action === "stop-all") button.querySelector("span").textContent = "Stopping…";
   if (action === "disconnect-all") button.querySelector("span").textContent = "Leaving…";
   try {
+    if (action === "start-all") {
+      const preparation = await api(`/api/audio/${encodeURIComponent(audioSelect.value)}/prepare`, {
+        method: "POST"
+      });
+      const selectedAudio = audioState.find((audio) => audio.id === audioSelect.value);
+      if (selectedAudio && preparation.preparation) selectedAudio.preparation = preparation.preparation;
+      renderAudio();
+    }
     const data = await api("/api/control", {
       method: "POST",
       body: JSON.stringify({
@@ -372,15 +443,20 @@ async function initialize() {
 }
 
 initialize();
-setInterval(() => {
+async function pollStatus() {
   if (!appShell.classList.contains("hidden")) {
-    refreshStatus().then(() => {
+    try {
+      await refreshStatus();
       statusPollFailureShown = false;
-    }).catch((error) => {
+    } catch (error) {
       if (error.message !== "Log in to control the bots." && !statusPollFailureShown) {
         toast(error.message, true);
         statusPollFailureShown = true;
       }
-    });
+    }
   }
-}, 8000);
+  const pollDelay = audioState.some((audio) => audio.preparation?.state === "preparing") ? 2000 : 8000;
+  setTimeout(pollStatus, pollDelay);
+}
+
+setTimeout(pollStatus, 8000);

@@ -55,7 +55,7 @@
           <article class="metric-card dark-metric"><span class="metric-label">FLEET STATUS</span><strong id="fleet-status">STANDING BY</strong><span class="metric-note"><i class="tiny-dot"></i> All systems monitored</span></article>
         </section>
 
-        <section class="control-panel">
+        <section class="control-panel audio-source-panel">
           <div class="section-heading">
             <div><p class="eyebrow">01 / AUDIO SOURCE</p><h2>Choose your sound</h2></div>
             <span class="section-tag">MP3 · WAV · OGG · 50 MB MAX</span>
@@ -65,6 +65,11 @@
             <label class="button button-upload" for="audio-file"><span>＋</span> Upload audio<input id="audio-file" type="file" accept="audio/*,.mp3,.wav,.ogg,.opus,.m4a,.aac,.flac,.webm" hidden></label>
           </div>
           <p class="upload-note" id="upload-note">Upload and select a sound, then use Play audio in the control bar below.</p>
+          <div class="audio-library-summary"><span id="audio-track-count">0 tracks uploaded</span><span>PREPARED FOR VOICE PLAYBACK</span></div>
+          <div class="audio-preparation" id="audio-preparation" role="status" aria-live="polite">
+            <div class="audio-preparation-copy"><span id="audio-preparation-label">Choose a track to prepare it for playback.</span><span id="audio-preparation-percent"></span></div>
+            <progress id="audio-preparation-progress" max="100" value="0" aria-label="Audio preparation progress"></progress>
+          </div>
         </section>
 
         <section class="control-panel channel-panel">

@@ -41,7 +41,10 @@ currently connected to voice.
    `/health` reports the Ogg Opus audio format used for playback. Audio is
    converted once per track and volume setting, then the same Opus packets are
    streamed to the fleet so every bot does not have to encode the track in
-   JavaScript at playback time.
+   JavaScript at playback time. New uploads are prepared in the background;
+   the dashboard shows conversion progress, and Play audio reuses that prepared
+   output. If conversion stops reporting progress, the dashboard shows an error
+   rather than remaining on Preparing indefinitely.
    Voice-state gateway updates are enabled by the app; no privileged portal
    intent is required for `GuildVoiceStates`.
    A bot can appear in Discord's voice member list before its voice media
