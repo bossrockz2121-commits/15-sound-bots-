@@ -41,14 +41,15 @@ currently connected to voice.
    intent is required for `GuildVoiceStates`.
    The voice handshake waits up to 45 seconds and leaves a still-negotiating
    connection alive rather than disconnecting it at timeout. If it remains
-   stuck in `connecting`, use **Disconnect all bots** to cancel it, then check
+   stuck in `connecting`, use **Disconnect VC** to cancel it, then check
    the host's outbound Discord voice connectivity before manually joining again.
    If it remains in `signalling`, the bot card identifies whether Discord has
    sent the bot voice-state update and voice-server update, plus the reported
-   voice endpoint. If the server update arrived first, the app now buffers it
-   until the bot voice-state update arrives, then forwards both to the voice
-   connection in order. Verify this bot's token is not being used by a second
-   running service, and that the bot is still online in the selected server.
+   voice endpoint and the voice library's exact networking stage. The app uses
+   discord.js's standard voice adapter so the voice library itself processes
+   gateway packets and starts networking. Verify this bot's token is not being
+   used by a second running service, and that the bot is still online in the
+   selected server.
    Each of the 15 slots must also have a unique token. Duplicate tokens are
    detected at startup and the duplicate slot is kept offline with an error.
 

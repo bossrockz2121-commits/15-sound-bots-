@@ -35,10 +35,20 @@ const loginAttempts = new Map();
 const clients = [];
 const bots = new Map();
 const tokenOwners = new Map();
+const observedVoiceNetworks = new WeakSet();
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const sessionLifetimeMs = 12 * 60 * 60 * 1000;
 const voiceReadyTimeoutMs = 45_000;
+const voiceNetworkStages = [
+  "opening voice WebSocket",
+  "identifying with voice server",
+  "performing UDP discovery",
+  "selecting voice protocol",
+  "voice network ready",
+  "resuming voice session",
+  "voice network closed"
+];
 const isProduction = process.env.NODE_ENV === "production";
 const configuredChannelIds = [...new Set(config.bots.map((bot) => bot.voiceChannelId).filter(Boolean))];
 let fleetChannelId = process.env.VOICE_CHANNEL_ID || (configuredChannelIds.length === 1 ? configuredChannelIds[0] : "");
@@ -66,6 +76,7 @@ for (const bot of config.bots) {
     status: process.env[bot.tokenEnv] ? "connecting" : "token_missing",
     voiceConnection: null,
     player: null,
+    voiceNetworkStage: null,
     guildId: bot.guildId || "",
     channelId: fleetChannelId || bot.voiceChannelId || "",
     muted: false,
@@ -157,6 +168,7 @@ function explainDiscordAccessError(runtime, error) {
 }
 
 function botSummary(runtime) {
+  const networkStatus = runtime.voiceConnection?.state?.networking?.state?.code;
   return {
     id: runtime.config.id,
     name: runtime.config.name,
@@ -172,6 +184,8 @@ function botSummary(runtime) {
     audioName: runtime.currentAudio?.name || null,
     voiceState: runtime.voiceConnection?.state?.status || null,
     voiceHandshake: runtime.voiceHandshake,
+    voiceNetworkStage: runtime.voiceNetworkStage ||
+      (Number.isInteger(networkStatus) ? voiceNetworkStages[networkStatus] || "unknown voice network stage" : null),
     error: runtime.error
   };
 }
@@ -331,10 +345,13 @@ function waitForVoiceReady(connection, runtime) {
       const detail = missing.length ? ` Still waiting for ${missing.join(", ")}.` : "";
       const received = runtime.voiceHandshake?.voiceStateUpdateReceived &&
         runtime.voiceHandshake?.voiceServerEndpointReceived
-        ? ` Received voice state for channel ${runtime.voiceHandshake.voiceStateChannelId || "unknown"} and voice endpoint ${runtime.voiceHandshake.voiceServerEndpointHost || "unknown"}; server updates are forwarded after voice-state updates.`
+        ? ` Received voice state for channel ${runtime.voiceHandshake.voiceStateChannelId || "unknown"} and voice endpoint ${runtime.voiceHandshake.voiceServerEndpointHost || "unknown"}.`
         : "";
+      const stage = connection.state.networking?.state?.code;
+      const networkStage = Number.isInteger(stage) ? voiceNetworkStages[stage] : runtime.voiceNetworkStage;
+      const network = networkStage ? ` Voice network stage: ${networkStage}.` : "";
       reject(new Error(
-        `${runtime.config.name}: voice connection stayed in ${state} for ${Math.round(voiceReadyTimeoutMs / 1000)} seconds.${detail}${received}`
+        `${runtime.config.name}: voice connection stayed in ${state} for ${Math.round(voiceReadyTimeoutMs / 1000)} seconds.${detail}${received}${network}`
       ));
     }, voiceReadyTimeoutMs);
 
@@ -401,70 +418,11 @@ async function joinBot(runtime) {
   }
 
   stopBot(runtime);
-  let pendingVoiceServerUpdate;
-  let connection;
-  const ensureNetworkingStarted = () => {
-    const handshake = runtime.voiceHandshake;
-    if (
-      connection &&
-      connection.state.status === VoiceConnectionStatus.Signalling &&
-      handshake?.voiceStateSessionReceived &&
-      handshake.voiceServerEndpointReceived
-    ) {
-      console.info(`${runtime.config.id}: both Discord voice handshake packets are available; starting voice networking.`);
-      try {
-        connection.configureNetworking();
-      } catch (error) {
-        runtime.error = `${runtime.config.name}: could not initialize Discord voice networking: ${error.message}`;
-        console.error(`${runtime.config.id}: voice networking initialization failed:`, error);
-      }
-    }
-  };
-  const forwardVoiceServerUpdate = (packet, methods) => {
-    runtime.voiceHandshake = {
-      ...runtime.voiceHandshake,
-      voiceServerUpdateReceived: true,
-      voiceServerEndpointReceived: Boolean(packet.endpoint),
-      voiceServerEndpointHost: packet.endpoint || null,
-      voiceServerUpdateAt: new Date().toISOString()
-    };
-    if (!runtime.voiceHandshake.voiceStateUpdateReceived) {
-      pendingVoiceServerUpdate = packet;
-      console.info(`${runtime.config.id}: buffering Discord voice-server update until its voice-state update arrives.`);
-      return;
-    }
-    const result = methods.onVoiceServerUpdate(packet);
-    ensureNetworkingStarted();
-    return result;
-  };
   const joinOptions = {
     channelId: channel.id,
     guildId: guild.id,
     group: runtime.config.id,
-    adapterCreator: (methods) => guild.voiceAdapterCreator({
-      ...methods,
-      onVoiceStateUpdate: (packet) => {
-        runtime.voiceHandshake = {
-          ...runtime.voiceHandshake,
-          voiceStateUpdateReceived: true,
-          voiceStateChannelId: packet.channel_id || null,
-          voiceStateSessionReceived: Boolean(packet.session_id),
-          voiceStateUpdateAt: new Date().toISOString()
-        };
-        const result = methods.onVoiceStateUpdate(packet);
-        if (pendingVoiceServerUpdate) {
-          const serverPacket = pendingVoiceServerUpdate;
-          pendingVoiceServerUpdate = null;
-          const serverResult = methods.onVoiceServerUpdate(serverPacket);
-          ensureNetworkingStarted();
-          return serverResult;
-        }
-        return result;
-      },
-      onVoiceServerUpdate: (packet) => {
-        return forwardVoiceServerUpdate(packet, methods);
-      }
-    }),
+    adapterCreator: guild.voiceAdapterCreator,
     selfDeaf: runtime.deafened,
     selfMute: runtime.muted
   };
@@ -478,11 +436,31 @@ async function joinBot(runtime) {
     voiceStateUpdateAt: null,
     voiceServerUpdateAt: null
   };
-  connection = joinVoiceChannel(joinOptions);
+  runtime.guildId = guild.id;
+  runtime.voiceNetworkStage = "waiting for Discord gateway voice updates";
+  const connection = joinVoiceChannel(joinOptions);
   runtime.voiceConnection = connection;
   runtime.status = "connecting";
   connection.on("stateChange", (_oldState, newState) => {
     if (runtime.voiceConnection !== connection) return;
+    console.info(`${runtime.config.id}: voice connection state is ${newState.status}.`);
+    if (newState.networking) {
+      const networking = newState.networking;
+      const setNetworkStage = (networkState) => {
+        runtime.voiceNetworkStage = voiceNetworkStages[networkState.code] || "unknown voice network stage";
+        console.info(`${runtime.config.id}: ${runtime.voiceNetworkStage}.`);
+      };
+      setNetworkStage(networking.state);
+      if (!observedVoiceNetworks.has(networking)) {
+        observedVoiceNetworks.add(networking);
+        networking.on("stateChange", (_oldNetworkState, newNetworkState) => setNetworkStage(newNetworkState));
+        networking.on("error", (error) => {
+          if (runtime.voiceConnection !== connection) return;
+          runtime.error = `${runtime.config.name}: Discord voice network failed: ${error.message}`;
+          console.error(`${runtime.config.id}: voice network error:`, error);
+        });
+      }
+    }
     if (newState.status === VoiceConnectionStatus.Ready) {
       runtime.status = "connected";
       runtime.error = null;
@@ -550,7 +528,6 @@ async function startBot(runtime, audio) {
   const resource = createAudioResource(audio.filePath, { inlineVolume: true });
   resource.volume.setVolume(volume);
   connection.subscribe(player);
-  player.play(resource);
   runtime.player = player;
   runtime.currentAudio = audio;
   runtime.playing = true;
@@ -564,6 +541,7 @@ async function startBot(runtime, audio) {
     runtime.playing = false;
     console.error(`${runtime.config.id}: audio playback failed:`, error);
   });
+  player.play(resource);
 }
 
 function stopBot(runtime) {
@@ -576,6 +554,7 @@ function stopBot(runtime) {
   }
   runtime.playing = false;
   runtime.voiceHandshake = null;
+  runtime.voiceNetworkStage = null;
   runtime.status = runtime.client?.isReady() ? "ready" : runtime.status;
   runtime.muted = false;
   runtime.deafened = false;
@@ -690,6 +669,26 @@ function connectDiscordBot(runtime) {
   });
   runtime.client = client;
   clients.push(client);
+  client.on("voiceStateUpdate", (_oldState, newState) => {
+    if (newState.id !== client.user?.id || newState.guild.id !== runtime.guildId) return;
+    runtime.voiceHandshake = {
+      ...runtime.voiceHandshake,
+      voiceStateUpdateReceived: true,
+      voiceStateChannelId: newState.channelId,
+      voiceStateSessionReceived: Boolean(newState.sessionId),
+      voiceStateUpdateAt: new Date().toISOString()
+    };
+  });
+  client.on("voiceServerUpdate", (update) => {
+    if (update.guildId !== runtime.guildId) return;
+    runtime.voiceHandshake = {
+      ...runtime.voiceHandshake,
+      voiceServerUpdateReceived: true,
+      voiceServerEndpointReceived: Boolean(update.endpoint),
+      voiceServerEndpointHost: update.endpoint || null,
+      voiceServerUpdateAt: new Date().toISOString()
+    };
+  });
   client.once("ready", () => {
     runtime.status = "ready";
     runtime.error = null;

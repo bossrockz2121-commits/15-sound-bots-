@@ -102,7 +102,7 @@ function renderBotCards() {
         ? `Discord handshake waiting for: ${waitingFor.join(", ")}`
         : channelMismatch
           ? `Discord voice-state channel ${handshake.voiceStateChannelId} does not match selected channel ${bot.channelId}`
-          : `Discord handshake updates received${handshake.voiceServerEndpointHost ? ` · ${handshake.voiceServerEndpointHost}` : ""}`;
+          : `Discord handshake updates received${handshake.voiceServerEndpointHost ? ` · ${handshake.voiceServerEndpointHost}` : ""}${bot.voiceNetworkStage ? ` · ${bot.voiceNetworkStage}` : ""}`;
       controls.append(handshakeState);
     }
 
