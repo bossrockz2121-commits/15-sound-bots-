@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#10110f">
+    <title>Soundroom — Bot Control</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <div class="login-screen" id="login-screen">
+      <div class="login-card">
+        <div class="brand-mark">S<span>↗</span></div>
+        <p class="eyebrow">SOUNDROOM / PRIVATE CONSOLE</p>
+        <h1>Your bots.<br><span>Your sound.</span></h1>
+        <p class="login-copy">Sign in to manage your Discord sound bots.</p>
+        <form id="login-form">
+          <label for="password">Dashboard password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required>
+          <button class="button button-primary login-button" type="submit">Unlock console <span>↗</span></button>
+          <p class="login-error" id="login-error" role="alert"></p>
+        </form>
+        <p class="login-hint">Set <code>DASHBOARD_PASSWORD</code> in your Render environment settings.</p>
+      </div>
+    </div>
+
+    <div class="app-shell hidden" id="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="/" aria-label="Soundroom home"><span class="brand-mark small">S<span>↗</span></span><span>SOUNDROOM<small>BOT CONTROL</small></span></a>
+        <div class="side-label">WORKSPACE</div>
+        <a class="side-link active" href="#studio"><span class="side-icon">◈</span>Live studio</a>
+        <a class="side-link" href="#bot-grid"><span class="side-icon">▦</span>Bot fleet <span class="side-count" id="sidebar-count">15</span></a>
+        <div class="sidebar-bottom">
+          <div class="server-card"><span class="server-icon">◎</span><span><strong>Discord gateway</strong><small id="gateway-state">Connecting…</small></span><i class="status-dot"></i></div>
+          <button class="logout-button" id="logout-button" type="button">↗ <span>Sign out</span></button>
+        </div>
+      </aside>
+
+      <main class="main-content" id="studio">
+        <header class="topbar">
+          <div class="breadcrumbs">WORKSPACE <span>/</span> LIVE STUDIO</div>
+          <div class="topbar-right"><span class="live-pill"><i></i> CONTROL PANEL</span><button class="icon-button" id="refresh-button" type="button" aria-label="Refresh status" title="Refresh status">↻</button></div>
+        </header>
+
+        <section class="welcome-row">
+          <div><p class="eyebrow">YOUR COMMAND CENTER <span class="eyebrow-line"></span> LIVE BOT CONTROL</p><h1>Make some <span>noise.</span></h1><p class="welcome-copy">One room. Fifteen bots. Your sound, on cue.</p></div>
+          <div class="fleet-counter"><span class="counter-orb">◉</span><div><strong><span id="online-count">0</span><small> / 15</small></strong><small class="counter-label">BOTS ONLINE</small></div></div>
+        </section>
+
+        <section class="metric-grid" aria-label="Bot summary">
+          <article class="metric-card"><span class="metric-icon mint">◈</span><span class="metric-label">CONNECTED</span><strong id="metric-connected">0</strong><span class="metric-note">in voice channels</span></article>
+          <article class="metric-card"><span class="metric-icon violet">♫</span><span class="metric-label">PLAYING</span><strong id="metric-playing">0</strong><span class="metric-note">streaming audio now</span></article>
+          <article class="metric-card"><span class="metric-icon amber">◉</span><span class="metric-label">SELECTED</span><strong id="metric-selected">0</strong><span class="metric-note">ready for commands</span></article>
+          <article class="metric-card dark-metric"><span class="metric-label">FLEET STATUS</span><strong id="fleet-status">STANDING BY</strong><span class="metric-note"><i class="tiny-dot"></i> All systems monitored</span></article>
+        </section>
+
+        <section class="control-panel">
+          <div class="section-heading">
+            <div><p class="eyebrow">01 / AUDIO SOURCE</p><h2>Choose your sound</h2></div>
+            <span class="section-tag">MP3 · WAV · OGG · 50 MB MAX</span>
+          </div>
+          <div class="audio-row">
+            <label class="audio-picker" for="audio-select"><span class="audio-icon">♫</span><span><small>SELECTED TRACK</small><select id="audio-select" aria-label="Select an uploaded audio file"><option value="">Upload a sound to get started</option></select></span><span class="chevron">⌄</span></label>
+            <label class="button button-upload" for="audio-file"><span>＋</span> Upload audio<input id="audio-file" type="file" accept="audio/*,.mp3,.wav,.ogg,.opus,.m4a,.aac,.flac,.webm" hidden></label>
+          </div>
+          <p class="upload-note" id="upload-note">Upload an audio file, then select bots and start playback.</p>
+        </section>
+
+        <section class="fleet-section" id="bot-grid">
+          <div class="fleet-heading">
+            <div><p class="eyebrow">02 / BOT FLEET</p><h2>Your sound bots <span class="fleet-total">15</span></h2></div>
+            <div class="fleet-actions"><label class="select-all"><input type="checkbox" id="select-all"><span>Select all</span></label><span class="selected-label"><b id="selected-count">0</b> selected</span></div>
+          </div>
+          <div class="bot-grid" id="bot-list" aria-live="polite"></div>
+        </section>
+
+        <footer class="page-footer"><span>SOUNDROOM <span class="footer-separator">/</span> DISCORD BOT OPERATIONS</span><span>CONTROL YOUR SOUND. STAY IN THE MOMENT.</span></footer>
+      </main>
+
+      <div class="command-dock">
+        <div class="dock-selection"><span class="dock-orb">◈</span><span><strong><b id="dock-count">0</b> bots selected</strong><small>Choose bots from your fleet</small></span></div>
+        <div class="dock-actions">
+          <button class="button button-primary" type="button" data-action="start">▶ <span>Start</span></button>
+          <button class="button button-stop" type="button" data-action="stop">■ <span>Stop</span></button>
+          <span class="dock-divider"></span>
+          <button class="button button-quiet" type="button" data-action="mute-all">◖ <span>Mute all</span></button>
+          <button class="button button-quiet" type="button" data-action="unmute-all">◗ <span>Unmute all</span></button>
+          <button class="button button-quiet" type="button" data-action="deafen-all">⊘ <span>Deafen all</span></button>
+          <button class="button button-quiet" type="button" data-action="undeafen-all">◎ <span>Undeafen all</span></button>
+        </div>
+      </div>
+    </div>
+    <div class="toast-region" id="toast-region" aria-live="polite"></div>
+  </body>
+</html>

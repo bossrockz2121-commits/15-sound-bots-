@@ -1,35 +1,39 @@
-# 15 Discord Sound Bot Settings
+# Soundroom — 15 Discord Sound Bots
 
-`bots.config.json` contains settings for 15 Discord sound bots. The Node.js
-application starts the enabled bots and exposes `/health` for Render.
+Soundroom is a password-protected web dashboard and Node.js service for
+operating up to 15 Discord sound bots. The dashboard lets you choose voice
+channels per bot, upload audio, start or stop selected bots, and mute, unmute,
+deafen, or undeafen all bots currently connected to voice.
 
-## Configure a bot
+## Configure
 
-For each bot:
+1. Create a Discord application and bot for each bot slot you plan to use.
+   Invite each bot to your server with permission to view the server and voice
+   channel, connect, and speak.
+2. Configure `DISCORD_BOT_TOKEN_01` through `DISCORD_BOT_TOKEN_15` as
+   environment variables. Use a local `.env` copied from `.env.example` for
+   local development; on Render, enter tokens in the service's **Environment**
+   settings. Never commit or share real bot tokens.
+3. Set a strong `DASHBOARD_PASSWORD` environment variable. The dashboard will
+   not permit control actions without it.
+4. Deploy the repository as a Render **Web Service** with **Build Command**
+   `npm install` and **Start Command** `npm start`. Render supplies `PORT`;
+   `/health` is the health-check endpoint.
+5. Open the service URL, sign in with `DASHBOARD_PASSWORD`, select each bot,
+   load its server and voice-channel choices, and select a channel.
+6. Upload a sound, select the bots to operate, and use the control bar. Start
+   and Stop apply to selected bots; Mute/Unmute/Deafen/Undeafen All apply to
+   every bot currently connected to a voice channel.
 
-1. Create a Discord application and bot, then invite it to the server with the
-   permissions it needs to connect to and speak in voice channels.
-2. For local development, copy `.env.example` to `.env` and put that bot's
-   token in the matching `DISCORD_BOT_TOKEN_XX` variable. On Render, add the
-   same variable names under **Environment** instead. Never commit or share
-   bot tokens.
-3. Set `guildId` and `voiceChannelId` in `bots.config.json`.
-4. Put the audio file at the configured `soundFile` path, or change the path
-   to the sound you want that bot to use.
-5. Set `enabled` to `true` for bots you want the application to start.
-   The default is `false`, so no bot logs in until you enable it.
+Bots with tokens connect to Discord when the service starts. Slots without a
+token remain visible but offline. Channel selections are held in memory until
+the service restarts. Audio uploads are limited to 50 MB and supported audio
+formats (MP3, WAV, OGG, OPUS, M4A, AAC, FLAC, and WEBM).
 
-`defaults` provides the default `enabled`, `volume` (0–1), and `loop` values.
-An individual bot can override these by adding the same setting to its entry.
-Each `tokenEnv` value names the environment variable from which the application
-reads that bot's token. Audio files must be included in the deployed project;
-the configured `.mp3` files are transcoded for Discord voice playback.
+## Render audio persistence
 
-## Deploy on Render
-
-Create a **Web Service** for this repository, use **`npm install`** as the
-Build Command and **`npm start`** as the Start Command. Render detects the
-listening `PORT` and checks `/health`. Add a `DISCORD_BOT_TOKEN_XX` environment
-variable for each enabled bot, and ensure the bot's configured sound file is
-committed to the repository. The bot must be invited to the configured server
-and have permission to view, connect to, and speak in its voice channel.
+Render's ordinary service filesystem is temporary. To keep uploaded sounds
+across deploys and restarts, attach a persistent disk mounted at
+`/var/data` and set `AUDIO_UPLOAD_DIR` to `/var/data/audio` in the service
+environment. Without a disk, uploaded files may be lost when Render replaces
+the service instance.
