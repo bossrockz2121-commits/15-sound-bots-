@@ -330,7 +330,7 @@ document.addEventListener("click", async (event) => {
 
   const previousLabel = button.innerHTML;
   button.disabled = true;
-  if (action === "start-all") button.querySelector("span").textContent = "Playing…";
+  if (action === "start-all") button.querySelector("span").textContent = "Preparing…";
   if (action === "stop-all") button.querySelector("span").textContent = "Stopping…";
   if (action === "disconnect-all") button.querySelector("span").textContent = "Leaving…";
   try {
@@ -347,8 +347,9 @@ document.addEventListener("click", async (event) => {
     else if (failures.length) {
       toast(`${successes} of ${data.results.length} bots completed; ${failures.length} failed. ${failures[0].error}`, true);
     } else {
-      const actionLabel = button.querySelector("span").textContent;
-      toast(`${actionLabel} applied to ${successes} bot${successes === 1 ? "" : "s"}.`);
+      toast(action === "start-all"
+        ? `Audio playback started on ${successes} bot${successes === 1 ? "" : "s"}.`
+        : `${button.querySelector("span").textContent} applied to ${successes} bot${successes === 1 ? "" : "s"}.`);
     }
     await refreshStatus();
   } catch (error) {

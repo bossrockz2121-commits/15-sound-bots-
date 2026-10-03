@@ -1,4 +1,5 @@
 const crypto = require("node:crypto");
+const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
@@ -6,10 +7,10 @@ const dotenv = require("dotenv");
 const express = require("express");
 const multer = require("multer");
 const ffmpegPath = require("ffmpeg-static");
-const prismOpus = require("prism-media").opus;
 const { Client, GatewayIntentBits, ChannelType } = require("discord.js");
 const {
   AudioPlayerStatus,
+  StreamType,
   createAudioPlayer,
   createAudioResource,
   joinVoiceChannel,
@@ -17,10 +18,6 @@ const {
 } = require("@discordjs/voice");
 
 dotenv.config();
-
-const opusEncoderProbe = new prismOpus.Encoder({ rate: 48_000, channels: 2, frameSize: 960 });
-const opusEncoder = prismOpus.Encoder.type;
-opusEncoderProbe.destroy();
 
 if (ffmpegPath) {
   process.env.PATH = `${path.dirname(ffmpegPath)}${path.delimiter}${process.env.PATH || ""}`;
@@ -32,9 +29,11 @@ if (!Array.isArray(config.bots) || config.bots.length !== 15) {
 }
 
 const audioDirectory = path.resolve(__dirname, process.env.AUDIO_UPLOAD_DIR || "uploads");
+const opusCacheDirectory = path.join(audioDirectory, ".opus-cache");
 fs.mkdirSync(audioDirectory, { recursive: true });
 const allowedAudioExtensions = new Set([".aac", ".flac", ".m4a", ".mp3", ".ogg", ".opus", ".wav", ".webm"]);
 const audioFiles = new Map();
+const audioPreparations = new WeakMap();
 const sessions = new Map();
 const loginAttempts = new Map();
 const clients = [];
@@ -73,6 +72,96 @@ function readAudioFiles() {
 }
 
 readAudioFiles();
+
+async function prepareAudioForPlayback(audio, volume) {
+  if (!audio || !fs.existsSync(audio.filePath)) {
+    throw new Error("Upload or select an audio file first.");
+  }
+  if (!ffmpegPath) {
+    throw new Error("Audio conversion is unavailable because FFmpeg is not installed.");
+  }
+  let preparations = audioPreparations.get(audio);
+  if (!preparations) {
+    preparations = new Map();
+    audioPreparations.set(audio, preparations);
+  }
+  const inProgress = preparations.get(volume);
+  if (inProgress) return inProgress;
+
+  const sourceStats = fs.statSync(audio.filePath);
+  const cacheId = crypto.createHash("sha256")
+    .update(`${audio.id}:${sourceStats.size}:${sourceStats.mtimeMs}:${volume}`)
+    .digest("hex");
+  const outputPath = path.join(opusCacheDirectory, `${cacheId}.ogg`);
+  if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) return outputPath;
+
+  const preparation = new Promise((resolve, reject) => {
+    fs.mkdirSync(opusCacheDirectory, { recursive: true });
+    const temporaryPath = path.join(opusCacheDirectory, `${cacheId}-${crypto.randomUUID()}.tmp.ogg`);
+    const ffmpeg = spawn(ffmpegPath, [
+      "-hide_banner",
+      "-loglevel", "error",
+      "-nostdin",
+      "-y",
+      "-i", audio.filePath,
+      "-map", "0:a:0",
+      "-vn",
+      "-ac", "2",
+      "-ar", "48000",
+      "-af", `volume=${volume}`,
+      "-c:a", "libopus",
+      "-threads", "1",
+      "-b:a", "128k",
+      "-application", "audio",
+      "-f", "ogg",
+      temporaryPath
+    ], { stdio: ["ignore", "ignore", "pipe"] });
+    let ffmpegError = "";
+    let settled = false;
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      try {
+        fs.rmSync(temporaryPath, { force: true });
+      } catch (cleanupError) {
+        error = new Error(`${error.message}; temporary audio cleanup failed: ${cleanupError.message}`);
+      }
+      reject(error);
+    };
+
+    ffmpeg.stderr.setEncoding("utf8");
+    ffmpeg.stderr.on("data", (chunk) => {
+      ffmpegError = `${ffmpegError}${chunk}`.slice(-4000);
+    });
+    ffmpeg.once("error", (error) => {
+      fail(new Error(`FFmpeg could not prepare this audio file: ${error.message}`));
+    });
+    ffmpeg.once("close", (code) => {
+      if (settled) return;
+      if (code !== 0) {
+        fail(new Error(`FFmpeg could not convert this audio file${ffmpegError.trim() ? `: ${ffmpegError.trim()}` : ` (exit code ${code})`}`));
+        return;
+      }
+      try {
+        if (!fs.existsSync(temporaryPath) || fs.statSync(temporaryPath).size === 0) {
+          throw new Error("FFmpeg produced an empty audio stream.");
+        }
+        fs.renameSync(temporaryPath, outputPath);
+        settled = true;
+        resolve(outputPath);
+      } catch (error) {
+        fail(new Error(`Could not cache the converted audio file: ${error.message}`));
+      }
+    });
+  });
+  preparations.set(volume, preparation);
+  try {
+    return await preparation;
+  } finally {
+    preparations.delete(volume);
+    if (preparations.size === 0) audioPreparations.delete(audio);
+  }
+}
 
 for (const bot of config.bots) {
   bots.set(bot.id, {
@@ -202,7 +291,7 @@ function botSummary(runtime) {
 }
 
 app.get("/health", (_request, response) => {
-  response.json({ status: "ok", configuredBots: config.bots.length, opusEncoder });
+  response.json({ status: "ok", configuredBots: config.bots.length, audioFormat: "Ogg Opus" });
 });
 
 app.post("/api/login", (request, response) => {
@@ -586,26 +675,34 @@ async function startBot(runtime, audio) {
   if (!channel?.permissionsFor(runtime.client.user)?.has("Speak")) {
     throw new Error(`${runtime.config.name}: the bot needs Speak permission in the selected channel to play audio.`);
   }
-  if (runtime.player) runtime.player.stop(true);
-
-  const player = createAudioPlayer();
   const volume = runtime.config.volume ?? config.defaults?.volume ?? 0.5;
   if (!Number.isFinite(volume) || volume < 0 || volume > 1) {
     throw new Error(`${runtime.config.name}: volume must be between 0 and 1.`);
   }
-  const resource = createAudioResource(audio.filePath, { inlineVolume: true });
-  resource.volume.setVolume(volume);
+  const opusFilePath = await prepareAudioForPlayback(audio, volume);
+  if (runtime.player) runtime.player.stop(true);
+
+  const player = createAudioPlayer();
+  const resource = createAudioResource(fs.createReadStream(opusFilePath), {
+    inputType: StreamType.OggOpus,
+  });
   connection.subscribe(player);
   runtime.player = player;
   runtime.currentAudio = audio;
-  runtime.playing = true;
+  runtime.playing = false;
   runtime.status = "connected";
   runtime.error = null;
+  player.on(AudioPlayerStatus.Playing, () => {
+    if (runtime.player === player) runtime.playing = true;
+  });
   player.on(AudioPlayerStatus.Idle, () => {
-    if (runtime.player === player) runtime.playing = false;
+    if (runtime.player === player) {
+      runtime.playing = false;
+      runtime.currentAudio = null;
+    }
   });
   player.on("error", (error) => {
-    runtime.error = error.message;
+    runtime.error = `${runtime.config.name}: audio playback failed: ${error.message}`;
     runtime.playing = false;
     console.error(`${runtime.config.id}: audio playback failed:`, error);
   });
@@ -714,7 +811,7 @@ server.on("error", (error) => {
 });
 server.listen(port, "0.0.0.0", () => {
   console.log(`Dashboard listening on port ${port}.`);
-  console.log(`Audio encoding is using ${opusEncoder}.`);
+  console.log("Audio playback uses cached Ogg Opus streams.");
   if (!process.env.DASHBOARD_PASSWORD) {
     console.error("DASHBOARD_PASSWORD is missing; dashboard control remains locked until it is set.");
   }
