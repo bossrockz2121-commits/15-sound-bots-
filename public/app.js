@@ -81,7 +81,11 @@ function renderBotCards() {
     const voiceState = bot.voiceState ? ` · ${bot.voiceState}` : "";
     connectionState.textContent = bot.playing
       ? `Playing audio${voiceState}`
-      : (bot.status === "connected" ? `In voice channel${voiceState}` : `Not in voice${voiceState}`);
+      : bot.status === "connected"
+        ? `Voice media ready${voiceState}`
+        : bot.voiceState === "signalling" || bot.voiceState === "connecting"
+          ? `Voice join pending${voiceState}`
+          : `Not in voice${voiceState}`;
     const audioStateText = document.createElement("span");
     audioStateText.className = "bot-state-detail";
     audioStateText.textContent = bot.audioName ? `♪ ${bot.audioName}` : (bot.channelId ? `Channel · ${bot.channelId}` : "No voice channel ID");
@@ -225,14 +229,18 @@ document.querySelector("#fleet-channel-form").addEventListener("submit", async (
     if (failures.length) {
       const detail = failures
         .slice(0, 3)
-        .map((bot) => `${bot.name}: ${bot.error}`)
+        .map((bot) => {
+          const prefix = `${bot.name}: `;
+          const error = bot.error.startsWith(prefix) ? bot.error.slice(prefix.length) : bot.error;
+          return `${bot.name}: ${error}`;
+        })
         .join(" | ");
       const others = failures.length > 3 ? ` | and ${failures.length - 3} more; see bot cards.` : "";
-      toast(`${result.joined} of ${result.total} bots joined. ${detail}${others}`, true);
+      toast(`${result.joined} of ${result.total} voice connections became ready. ${detail}${others}`, true);
     } else if (result.joined === 0) {
       toast("Channel ID saved, but no bots are online yet. Check the bot tokens in Render.", true);
     } else {
-      toast(`All ${result.joined} bots joined the voice channel.`);
+      toast(`All ${result.joined} voice connections are ready.`);
     }
   } catch (error) {
     toast(error.message, true);

@@ -79,6 +79,7 @@ for (const bot of config.bots) {
     voiceConnection: null,
     player: null,
     voiceNetworkStage: null,
+    voiceNetworkCloseCode: null,
     guildId: bot.guildId || "",
     channelId: fleetChannelId || bot.voiceChannelId || "",
     muted: false,
@@ -188,6 +189,7 @@ function botSummary(runtime) {
     audioName: runtime.currentAudio?.name || null,
     voiceState: runtime.voiceConnection?.state?.status || null,
     voiceHandshake: runtime.voiceHandshake,
+    voiceNetworkCloseCode: runtime.voiceNetworkCloseCode,
     voiceNetworkStage: runtime.voiceNetworkStage ||
       (Number.isInteger(networkStatus) ? voiceNetworkStages[networkStatus] || "unknown voice network stage" : null),
     error: runtime.error
@@ -354,8 +356,15 @@ function waitForVoiceReady(connection, runtime) {
       const stage = connection.state.networking?.state?.code;
       const networkStage = Number.isInteger(stage) ? voiceNetworkStages[stage] : runtime.voiceNetworkStage;
       const network = networkStage ? ` Voice network stage: ${networkStage}.` : "";
+      const closeCode = runtime.voiceNetworkCloseCode === null
+        ? ""
+        : ` Voice WebSocket close code: ${runtime.voiceNetworkCloseCode}.`;
+      const transportFailure = state === VoiceConnectionStatus.Signalling &&
+        networkStage === "voice network closed"
+        ? ` Discord may list the bot in the channel, but its voice network closed before media became ready.${closeCode} Audio cannot play until the voice status is Ready. This is a voice transport failure, not a channel-permission failure. Check Render's outbound Discord voice WebSocket/UDP connectivity.`
+        : "";
       reject(new Error(
-        `${runtime.config.name}: voice connection stayed in ${state} for ${Math.round(voiceReadyTimeoutMs / 1000)} seconds.${detail}${received}${network}`
+        `${runtime.config.name}: voice connection stayed in ${state} for ${Math.round(voiceReadyTimeoutMs / 1000)} seconds.${detail}${received}${network}${transportFailure}`
       ));
     }, voiceReadyTimeoutMs);
 
@@ -443,6 +452,7 @@ async function joinBot(runtime) {
     voiceServerUpdateAt: null
   };
   runtime.guildId = guild.id;
+  runtime.voiceNetworkCloseCode = null;
   runtime.voiceNetworkStage = "waiting for Discord gateway voice updates";
   const connection = joinVoiceChannel(joinOptions);
   runtime.voiceConnection = connection;
@@ -464,13 +474,21 @@ async function joinBot(runtime) {
     if (newState.networking) {
       const networking = newState.networking;
       const setNetworkStage = (networkState) => {
+        if (connection.state.networking !== networking) return;
         runtime.voiceNetworkStage = voiceNetworkStages[networkState.code] || "unknown voice network stage";
         console.info(`${runtime.config.id}: ${runtime.voiceNetworkStage}.`);
       };
       setNetworkStage(networking.state);
       if (!observedVoiceNetworks.has(networking)) {
         observedVoiceNetworks.add(networking);
+        runtime.voiceNetworkCloseCode = null;
         networking.on("stateChange", (_oldNetworkState, newNetworkState) => setNetworkStage(newNetworkState));
+        networking.on("close", (code) => {
+          if (runtime.voiceConnection !== connection || connection.state.networking !== networking) return;
+          runtime.voiceNetworkCloseCode = code;
+          runtime.voiceNetworkStage = "voice network closed";
+          console.error(`${runtime.config.id}: Discord voice WebSocket closed with code ${code}.`);
+        });
         networking.on("error", (error) => {
           if (runtime.voiceConnection !== connection) return;
           runtime.error = `${runtime.config.name}: Discord voice network failed: ${error.message}`;
@@ -508,12 +526,9 @@ async function joinBot(runtime) {
   } catch (error) {
     const stillNegotiating = connection.state.status === VoiceConnectionStatus.Signalling ||
       connection.state.status === VoiceConnectionStatus.Connecting;
-    const connectionError = new Error(stillNegotiating
-      ? `${error.message} The connection was left active instead of being forcibly disconnected; it may still complete. ` +
-        (connection.state.status === VoiceConnectionStatus.Signalling
-          ? "Discord has not completed the voice-gateway handshake. Check that the bot remains online and try Join again."
-          : "The voice socket did not finish connecting. Check that the host allows outbound UDP traffic to Discord voice.")
-      : `${error.message} Check the bot's server access, channel permissions, and Discord voice connectivity.`);
+    const connectionError = stillNegotiating
+      ? new Error(error.message)
+      : new Error(`${error.message} Check the bot's server access, channel permissions, and Discord voice connectivity.`);
     if (stillNegotiating) {
       runtime.status = "connecting";
     } else {
@@ -533,7 +548,11 @@ async function startBot(runtime, audio) {
   if (!audio || !fs.existsSync(audio.filePath)) throw new Error("Upload or select an audio file first.");
   const connection = runtime.voiceConnection;
   if (connection?.state.status !== VoiceConnectionStatus.Ready) {
-    throw new Error(`${runtime.config.name}: not connected to voice. Click Join VC first.`);
+    const state = connection?.state.status || "not connected";
+    throw new Error(
+      `${runtime.config.name}: voice media is not ready (state: ${state}). Discord may show the bot in the channel, ` +
+      "but audio cannot play until the voice connection reaches Ready. Check the voice-network error and reconnect after resolving it."
+    );
   }
   const channel = await runtime.client.channels.fetch(runtime.channelId);
   if (!channel?.permissionsFor(runtime.client.user)?.has("Speak")) {

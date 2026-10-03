@@ -39,10 +39,15 @@ currently connected to voice.
    and it has View Channel and Connect permissions in the channel.
    Voice-state gateway updates are enabled by the app; no privileged portal
    intent is required for `GuildVoiceStates`.
-   The voice handshake waits up to 45 seconds and leaves a still-negotiating
-   connection alive rather than disconnecting it at timeout. If it remains
-   stuck in `connecting`, use **Disconnect VC** to cancel it, then check
-   the host's outbound Discord voice connectivity before manually joining again.
+   A bot can appear in Discord's voice member list before its voice media
+   connection is ready. Audio starts only when the dashboard reports
+   **Voice media ready**. The voice handshake waits up to 45 seconds; if it
+   remains pending, use **Disconnect VC** to cancel it before retrying.
+   A `voice network closed` error means the voice transport closed before
+   media became ready, not that the channel join necessarily failed. Check
+   the reported voice WebSocket close code and Render's outbound Discord voice
+   WebSocket/UDP connectivity. Audio cannot play until the connection reaches
+   `Ready`.
    If a connection is `destroyed`, check the bot card and Render logs for the
    Discord gateway shard close code. The voice adapter is destroyed when its
    gateway shard disconnects; confirm each token is used by one running service
