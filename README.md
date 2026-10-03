@@ -20,7 +20,8 @@ currently connected to voice.
    prefill the shared voice channel.
 4. Deploy the repository as a Render **Web Service** with **Build Command**
    `npm install` and **Start Command** `npm start`. Render supplies `PORT`;
-   `/health` is the health-check endpoint.
+   `/health` is the health-check endpoint. `.node-version` selects Node.js
+   22.12.0, required by the DAVE-capable Discord voice library.
 5. Open the service URL, sign in with `DASHBOARD_PASSWORD`, enter one Discord
    voice-channel ID, and click **Join all bots**. This saves the ID and joins
    every online, token-configured bot in parallel. The channel's server is
@@ -47,7 +48,9 @@ currently connected to voice.
    media became ready, not that the channel join necessarily failed. Check
    the reported voice WebSocket close code and Render's outbound Discord voice
    WebSocket/UDP connectivity. Audio cannot play until the connection reaches
-   `Ready`.
+   `Ready`. Close code `4017` specifically means Discord requires DAVE
+   end-to-end encryption; deploy the current `package-lock.json` with
+   `@discordjs/voice` 0.19.2 and Node.js 22.12.0 or newer.
    If a connection is `destroyed`, check the bot card and Render logs for the
    Discord gateway shard close code. The voice adapter is destroyed when its
    gateway shard disconnects; confirm each token is used by one running service

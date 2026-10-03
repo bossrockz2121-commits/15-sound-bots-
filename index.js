@@ -336,6 +336,7 @@ function waitForVoiceReady(connection, runtime) {
   if (connection.state.status === VoiceConnectionStatus.Ready) return Promise.resolve(connection);
 
   return new Promise((resolve, reject) => {
+    let watchedNetworking = null;
     const timeout = setTimeout(() => {
       cleanup();
       const state = connection.state.status;
@@ -359,9 +360,12 @@ function waitForVoiceReady(connection, runtime) {
       const closeCode = runtime.voiceNetworkCloseCode === null
         ? ""
         : ` Voice WebSocket close code: ${runtime.voiceNetworkCloseCode}.`;
+      const daveFailure = runtime.voiceNetworkCloseCode === 4017
+        ? " Discord requires DAVE end-to-end encryption for this voice channel. Confirm Render deployed the DAVE-capable @discordjs/voice version from package-lock.json and is running Node.js 22.12.0 or newer."
+        : "";
       const transportFailure = state === VoiceConnectionStatus.Signalling &&
         networkStage === "voice network closed"
-        ? ` Discord may list the bot in the channel, but its voice network closed before media became ready.${closeCode} Audio cannot play until the voice status is Ready. This is a voice transport failure, not a channel-permission failure. Check Render's outbound Discord voice WebSocket/UDP connectivity.`
+        ? ` Discord may list the bot in the channel, but its voice network closed before media became ready.${closeCode}${daveFailure} Audio cannot play until the voice status is Ready. This is a voice transport failure, not a channel-permission failure.`
         : "";
       reject(new Error(
         `${runtime.config.name}: voice connection stayed in ${state} for ${Math.round(voiceReadyTimeoutMs / 1000)} seconds.${detail}${received}${network}${transportFailure}`
@@ -371,9 +375,27 @@ function waitForVoiceReady(connection, runtime) {
     const cleanup = () => {
       clearTimeout(timeout);
       connection.removeListener("stateChange", onStateChange);
+      watchedNetworking?.removeListener("close", onNetworkClose);
+    };
+
+    const onNetworkClose = (code) => {
+      runtime.voiceNetworkCloseCode = code;
+      runtime.voiceNetworkStage = "voice network closed";
+      if (code !== 4017) return;
+      cleanup();
+      reject(new Error(
+        `${runtime.config.name}: Discord closed the voice connection with code 4017 because this channel requires DAVE end-to-end encryption. ` +
+        "Ensure Render deployed @discordjs/voice 0.19.2 and is running Node.js 22.12.0 or newer."
+      ));
     };
 
     const onStateChange = (_oldState, newState) => {
+      const networking = newState.networking;
+      if (networking !== watchedNetworking) {
+        watchedNetworking?.removeListener("close", onNetworkClose);
+        watchedNetworking = networking || null;
+        watchedNetworking?.once("close", onNetworkClose);
+      }
       if (newState.status === VoiceConnectionStatus.Ready) {
         cleanup();
         resolve(connection);
@@ -526,10 +548,11 @@ async function joinBot(runtime) {
   } catch (error) {
     const stillNegotiating = connection.state.status === VoiceConnectionStatus.Signalling ||
       connection.state.status === VoiceConnectionStatus.Connecting;
+    const daveFailure = runtime.voiceNetworkCloseCode === 4017;
     const connectionError = stillNegotiating
       ? new Error(error.message)
       : new Error(`${error.message} Check the bot's server access, channel permissions, and Discord voice connectivity.`);
-    if (stillNegotiating) {
+    if (stillNegotiating && !daveFailure) {
       runtime.status = "connecting";
     } else {
       if (connection.state.status !== VoiceConnectionStatus.Destroyed) connection.destroy();
