@@ -202,7 +202,12 @@ document.querySelector("#fleet-channel-form").addEventListener("submit", async (
     await refreshStatus();
     const failures = result.results.filter((bot) => !bot.ok);
     if (failures.length) {
-      toast(`${result.joined} of ${result.total} bots joined. ${failures[0].name}: ${failures[0].error}`, true);
+      const detail = failures
+        .slice(0, 3)
+        .map((bot) => `${bot.name}: ${bot.error}`)
+        .join(" | ");
+      const others = failures.length > 3 ? ` | and ${failures.length - 3} more; see bot cards.` : "";
+      toast(`${result.joined} of ${result.total} bots joined. ${detail}${others}`, true);
     } else if (result.joined === 0) {
       toast("Channel ID saved, but no bots are online yet. Check the bot tokens in Render.", true);
     } else {

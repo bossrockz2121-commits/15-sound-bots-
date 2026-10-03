@@ -25,7 +25,9 @@ currently connected to voice.
    voice-channel ID, and click **Join all bots**. This saves the ID and joins
    every online, token-configured bot in parallel. The channel's server is
    detected automatically; every bot must be invited to that server and have
-   View Channel and Connect permissions.
+   View Channel and Connect permissions. A problem with one bot no longer
+   blocks the other bots; failed bots show their individual error in the
+   dashboard.
 6. Upload one sound and use **Start all bots** to play it after the bots have
    joined. Audio playback also requires Speak permission. **Stop all bots**
    disconnects the entire connected fleet. Mute/Unmute/Deafen/Undeafen apply to

@@ -248,36 +248,10 @@ app.put("/api/fleet/channel", requireAuth, async (request, response) => {
       throw new Error("Enter a valid Discord voice channel ID (17–20 digits).");
     }
 
-    const readyBots = [...bots.values()].filter((runtime) => runtime.client?.isReady());
-    const validations = await Promise.all(readyBots.map(async (runtime) => {
-      try {
-        const channel = await runtime.client.channels.fetch(channelId);
-        if (!channel || channel.type !== ChannelType.GuildVoice) {
-          throw new Error("The ID is not a voice channel this bot can access.");
-        }
-        const permissions = channel.permissionsFor(runtime.client.user);
-        if (!permissions?.has(["ViewChannel", "Connect"])) {
-          throw new Error("The bot needs View Channel and Connect permissions.");
-        }
-        return { runtime, guildId: channel.guild.id };
-      } catch (error) {
-        return { runtime, error: error.message };
-      }
-    }));
-    const failures = validations.filter((result) => result.error);
-    if (failures.length) {
-      response.status(400).json({
-        error: `Could not apply that channel to ${failures.length} online bot${failures.length === 1 ? "" : "s"}.`,
-        results: failures.map(({ runtime, error }) => ({ id: runtime.config.id, name: runtime.config.name, error }))
-      });
-      return;
-    }
-
     fleetChannelId = channelId;
-    const guildIds = new Map(validations.map(({ runtime, guildId }) => [runtime.config.id, guildId]));
     for (const runtime of bots.values()) {
       runtime.channelId = channelId;
-      runtime.guildId = guildIds.get(runtime.config.id) || "";
+      runtime.guildId = "";
       runtime.error = null;
     }
 
@@ -287,6 +261,7 @@ app.put("/api/fleet/channel", requireAuth, async (request, response) => {
         return { id: runtime.config.id, name: runtime.config.name, ok: true, bot: botSummary(runtime) };
       } catch (error) {
         runtime.error = error.message;
+        console.error(`${runtime.config.id}: could not join voice channel ${channelId}:`, error);
         return { id: runtime.config.id, name: runtime.config.name, ok: false, error: error.message, bot: botSummary(runtime) };
       }
     }));
