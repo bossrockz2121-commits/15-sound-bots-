@@ -90,13 +90,19 @@ function renderBotCards() {
       const handshake = bot.voiceHandshake;
       const waitingFor = [];
       if (!handshake.voiceStateUpdateReceived) waitingFor.push("bot voice-state update");
+      if (!handshake.voiceStateSessionReceived) waitingFor.push("bot voice session ID");
       if (!handshake.voiceServerUpdateReceived) waitingFor.push("voice-server update");
       if (!handshake.voiceServerEndpointReceived) waitingFor.push("voice endpoint");
       const handshakeState = document.createElement("span");
       handshakeState.className = "bot-state-detail";
+      const channelMismatch = handshake.voiceStateChannelId &&
+        bot.channelId &&
+        handshake.voiceStateChannelId !== bot.channelId;
       handshakeState.textContent = waitingFor.length
         ? `Discord handshake waiting for: ${waitingFor.join(", ")}`
-        : "Discord handshake updates received";
+        : channelMismatch
+          ? `Discord voice-state channel ${handshake.voiceStateChannelId} does not match selected channel ${bot.channelId}`
+          : `Discord handshake updates received${handshake.voiceServerEndpointHost ? ` · ${handshake.voiceServerEndpointHost}` : ""}`;
       controls.append(handshakeState);
     }
 

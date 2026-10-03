@@ -45,9 +45,11 @@ currently connected to voice.
    stuck in `connecting`, use **Disconnect all bots** to cancel it, then check
    the host's outbound Discord voice connectivity before manually joining again.
    If it remains in `signalling`, the bot card identifies whether Discord has
-   sent the bot voice-state update and voice-server update. Verify this bot's
-   token is not being used by a second running service, and that the bot is
-   still online in the selected server.
+   sent the bot voice-state update and voice-server update, plus the reported
+   voice endpoint. If the server update arrived first, the app now buffers it
+   until the bot voice-state update arrives, then forwards both to the voice
+   connection in order. Verify this bot's token is not being used by a second
+   running service, and that the bot is still online in the selected server.
    Each of the 15 slots must also have a unique token. Duplicate tokens are
    detected at startup and the duplicate slot is kept offline with an error.
 

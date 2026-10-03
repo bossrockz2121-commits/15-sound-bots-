@@ -313,11 +313,16 @@ function waitForVoiceReady(connection, runtime) {
       const state = connection.state.status;
       const missing = [];
       if (!runtime.voiceHandshake?.voiceStateUpdateReceived) missing.push("bot voice-state update");
+      if (!runtime.voiceHandshake?.voiceStateSessionReceived) missing.push("bot voice session ID");
       if (!runtime.voiceHandshake?.voiceServerUpdateReceived) missing.push("voice-server update");
       if (!runtime.voiceHandshake?.voiceServerEndpointReceived) missing.push("a valid voice-server endpoint");
       const detail = missing.length ? ` Still waiting for ${missing.join(", ")}.` : "";
+      const received = runtime.voiceHandshake?.voiceStateUpdateReceived &&
+        runtime.voiceHandshake?.voiceServerEndpointReceived
+        ? ` Received voice state for channel ${runtime.voiceHandshake.voiceStateChannelId || "unknown"} and voice endpoint ${runtime.voiceHandshake.voiceServerEndpointHost || "unknown"}; server updates are forwarded after voice-state updates.`
+        : "";
       reject(new Error(
-        `${runtime.config.name}: voice connection stayed in ${state} for ${Math.round(voiceReadyTimeoutMs / 1000)} seconds.${detail}`
+        `${runtime.config.name}: voice connection stayed in ${state} for ${Math.round(voiceReadyTimeoutMs / 1000)} seconds.${detail}${received}`
       ));
     }, voiceReadyTimeoutMs);
 
@@ -384,6 +389,22 @@ async function joinBot(runtime) {
   }
 
   stopBot(runtime);
+  let pendingVoiceServerUpdate;
+  const forwardVoiceServerUpdate = (packet, methods) => {
+    runtime.voiceHandshake = {
+      ...runtime.voiceHandshake,
+      voiceServerUpdateReceived: true,
+      voiceServerEndpointReceived: Boolean(packet.endpoint),
+      voiceServerEndpointHost: packet.endpoint || null,
+      voiceServerUpdateAt: new Date().toISOString()
+    };
+    if (!runtime.voiceHandshake.voiceStateUpdateReceived) {
+      pendingVoiceServerUpdate = packet;
+      console.info(`${runtime.config.id}: buffering Discord voice-server update until its voice-state update arrives.`);
+      return;
+    }
+    return methods.onVoiceServerUpdate(packet);
+  };
   const joinOptions = {
     channelId: channel.id,
     guildId: guild.id,
@@ -394,19 +415,20 @@ async function joinBot(runtime) {
         runtime.voiceHandshake = {
           ...runtime.voiceHandshake,
           voiceStateUpdateReceived: true,
-          channelId: packet.channel_id || null,
-          lastUpdateAt: new Date().toISOString()
+          voiceStateChannelId: packet.channel_id || null,
+          voiceStateSessionReceived: Boolean(packet.session_id),
+          voiceStateUpdateAt: new Date().toISOString()
         };
-        return methods.onVoiceStateUpdate(packet);
+        const result = methods.onVoiceStateUpdate(packet);
+        if (pendingVoiceServerUpdate) {
+          const serverPacket = pendingVoiceServerUpdate;
+          pendingVoiceServerUpdate = null;
+          return methods.onVoiceServerUpdate(serverPacket);
+        }
+        return result;
       },
       onVoiceServerUpdate: (packet) => {
-        runtime.voiceHandshake = {
-          ...runtime.voiceHandshake,
-          voiceServerUpdateReceived: true,
-          voiceServerEndpointReceived: Boolean(packet.endpoint),
-          lastUpdateAt: new Date().toISOString()
-        };
-        return methods.onVoiceServerUpdate(packet);
+        return forwardVoiceServerUpdate(packet, methods);
       }
     }),
     selfDeaf: runtime.deafened,
@@ -416,8 +438,11 @@ async function joinBot(runtime) {
     voiceStateUpdateReceived: false,
     voiceServerUpdateReceived: false,
     voiceServerEndpointReceived: false,
-    channelId: null,
-    lastUpdateAt: null
+    voiceServerEndpointHost: null,
+    voiceStateChannelId: null,
+    voiceStateSessionReceived: false,
+    voiceStateUpdateAt: null,
+    voiceServerUpdateAt: null
   };
   const connection = joinVoiceChannel(joinOptions);
   runtime.voiceConnection = connection;
