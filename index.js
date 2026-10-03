@@ -6,6 +6,7 @@ const dotenv = require("dotenv");
 const express = require("express");
 const multer = require("multer");
 const ffmpegPath = require("ffmpeg-static");
+const prismOpus = require("prism-media").opus;
 const { Client, GatewayIntentBits, ChannelType } = require("discord.js");
 const {
   AudioPlayerStatus,
@@ -16,6 +17,10 @@ const {
 } = require("@discordjs/voice");
 
 dotenv.config();
+
+const opusEncoderProbe = new prismOpus.Encoder({ rate: 48_000, channels: 2, frameSize: 960 });
+const opusEncoder = prismOpus.Encoder.type;
+opusEncoderProbe.destroy();
 
 if (ffmpegPath) {
   process.env.PATH = `${path.dirname(ffmpegPath)}${path.delimiter}${process.env.PATH || ""}`;
@@ -197,7 +202,7 @@ function botSummary(runtime) {
 }
 
 app.get("/health", (_request, response) => {
-  response.json({ status: "ok", configuredBots: config.bots.length });
+  response.json({ status: "ok", configuredBots: config.bots.length, opusEncoder });
 });
 
 app.post("/api/login", (request, response) => {
@@ -709,6 +714,7 @@ server.on("error", (error) => {
 });
 server.listen(port, "0.0.0.0", () => {
   console.log(`Dashboard listening on port ${port}.`);
+  console.log(`Audio encoding is using ${opusEncoder}.`);
   if (!process.env.DASHBOARD_PASSWORD) {
     console.error("DASHBOARD_PASSWORD is missing; dashboard control remains locked until it is set.");
   }

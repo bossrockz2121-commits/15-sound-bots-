@@ -9,16 +9,25 @@ let botState = [];
 let audioState = [];
 let lastBotRenderSignature = "";
 let appliedFleetChannelId = "";
+let statusPollFailureShown = false;
 
 async function api(url, options = {}) {
-  const response = await fetch(url, {
-    credentials: "same-origin",
-    ...options,
-    headers: {
-      ...(options.body instanceof FormData ? {} : { "content-type": "application/json" }),
-      ...options.headers
+  let response;
+  try {
+    response = await fetch(url, {
+      credentials: "same-origin",
+      ...options,
+      headers: {
+        ...(options.body instanceof FormData ? {} : { "content-type": "application/json" }),
+        ...options.headers
+      }
+    });
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error("Cannot reach the dashboard server. It may be restarting or unavailable; check the Render service status and logs.");
     }
-  });
+    throw error;
+  }
   const body = response.status === 204 ? {} : await response.json().catch(() => ({}));
   if (response.status === 401) {
     loginScreen.classList.remove("hidden");
@@ -364,8 +373,13 @@ async function initialize() {
 initialize();
 setInterval(() => {
   if (!appShell.classList.contains("hidden")) {
-    refreshStatus().catch((error) => {
-      if (error.message !== "Log in to control the bots.") toast(error.message, true);
+    refreshStatus().then(() => {
+      statusPollFailureShown = false;
+    }).catch((error) => {
+      if (error.message !== "Log in to control the bots." && !statusPollFailureShown) {
+        toast(error.message, true);
+        statusPollFailureShown = true;
+      }
     });
   }
 }, 8000);

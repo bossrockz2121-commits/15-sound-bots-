@@ -21,7 +21,8 @@ currently connected to voice.
 4. Deploy the repository as a Render **Web Service** with **Build Command**
    `npm install` and **Start Command** `npm start`. Render supplies `PORT`;
    `/health` is the health-check endpoint. `.node-version` selects Node.js
-   22.12.0, required by the DAVE-capable Discord voice library.
+   22.12.0, required by the DAVE-capable Discord voice library. `npm install`
+   also installs the JavaScript Opus encoder required for playback.
 5. Open the service URL, sign in with `DASHBOARD_PASSWORD`, enter one Discord
    voice-channel ID, and click **Join all bots**. This saves the ID and joins
    every online, token-configured bot in parallel. The channel's server is
@@ -38,6 +39,9 @@ currently connected to voice.
 7. If a bot does not join voice, check its card for the specific connection
    error. Confirm its token is correct, it is invited to the selected server,
    and it has View Channel and Connect permissions in the channel.
+   `/health` reports the active Opus encoder. The app includes `opusscript`
+   so audio encoding does not depend on optional native modules being available
+   in the host environment.
    Voice-state gateway updates are enabled by the app; no privileged portal
    intent is required for `GuildVoiceStates`.
    A bot can appear in Discord's voice member list before its voice media
