@@ -39,6 +39,8 @@ const app = express();
 const port = Number(process.env.PORT || 3000);
 const sessionLifetimeMs = 12 * 60 * 60 * 1000;
 const isProduction = process.env.NODE_ENV === "production";
+const configuredChannelIds = [...new Set(config.bots.map((bot) => bot.voiceChannelId).filter(Boolean))];
+let fleetChannelId = process.env.VOICE_CHANNEL_ID || (configuredChannelIds.length === 1 ? configuredChannelIds[0] : "");
 
 function readAudioFiles() {
   for (const fileName of fs.readdirSync(audioDirectory)) {
@@ -64,7 +66,7 @@ for (const bot of config.bots) {
     voiceConnection: null,
     player: null,
     guildId: bot.guildId || "",
-    channelId: bot.voiceChannelId || "",
+    channelId: fleetChannelId || bot.voiceChannelId || "",
     muted: false,
     deafened: false,
     playing: false,
@@ -145,16 +147,12 @@ function sendError(response, error, status = 400) {
   response.status(status).json({ error: error.message || String(error) });
 }
 
-function getBot(botId) {
-  const runtime = bots.get(botId);
-  if (!runtime) throw Object.assign(new Error("Unknown bot."), { status: 404 });
-  return runtime;
-}
-
 function botSummary(runtime) {
   return {
     id: runtime.config.id,
     name: runtime.config.name,
+    hasToken: Boolean(process.env[runtime.config.tokenEnv]),
+    online: Boolean(runtime.client?.isReady()),
     status: runtime.status,
     guildId: runtime.guildId,
     channelId: runtime.channelId,
@@ -216,6 +214,7 @@ app.post("/api/logout", requireAuth, (request, response) => {
 
 app.get("/api/status", requireAuth, (_request, response) => {
   response.json({
+    fleetChannelId,
     bots: [...bots.values()].map(botSummary),
     audio: [...audioFiles.values()].map(({ id, name }) => ({ id, name }))
   });
@@ -241,72 +240,51 @@ app.post("/api/audio", requireAuth, (request, response, next) => {
   });
 });
 
-app.get("/api/bots/:botId/guilds", requireAuth, async (request, response) => {
+app.put("/api/fleet/channel", requireAuth, async (request, response) => {
   try {
-    const runtime = getBot(request.params.botId);
-    if (!runtime.client?.isReady()) {
-      response.status(409).json({ error: "This bot is not online. Check its token and invite it to a server." });
-      return;
+    const { channelId } = request.body || {};
+    if (typeof channelId !== "string" || !/^\d{17,20}$/.test(channelId)) {
+      throw new Error("Enter a valid Discord voice channel ID (17–20 digits).");
     }
-    const guilds = runtime.client.guilds.cache;
-    response.json({
-      guilds: [...guilds.values()].map((guild) => ({ id: guild.id, name: guild.name }))
-    });
-  } catch (error) {
-    sendError(response, error, error.status || 502);
-  }
-});
 
-app.get("/api/bots/:botId/channels", requireAuth, async (request, response) => {
-  try {
-    const runtime = getBot(request.params.botId);
-    if (!runtime.client?.isReady()) {
-      response.status(409).json({ error: "This bot is not online." });
+    const readyBots = [...bots.values()].filter((runtime) => runtime.client?.isReady());
+    const validations = await Promise.all(readyBots.map(async (runtime) => {
+      try {
+        const channel = await runtime.client.channels.fetch(channelId);
+        if (!channel || channel.type !== ChannelType.GuildVoice) {
+          throw new Error("The ID is not a voice channel this bot can access.");
+        }
+        const permissions = channel.permissionsFor(runtime.client.user);
+        if (!permissions?.has(["ViewChannel", "Connect", "Speak"])) {
+          throw new Error("The bot needs View Channel, Connect, and Speak permissions.");
+        }
+        return { runtime, guildId: channel.guild.id };
+      } catch (error) {
+        return { runtime, error: error.message };
+      }
+    }));
+    const failures = validations.filter((result) => result.error);
+    if (failures.length) {
+      response.status(400).json({
+        error: `Could not apply that channel to ${failures.length} online bot${failures.length === 1 ? "" : "s"}.`,
+        results: failures.map(({ runtime, error }) => ({ id: runtime.config.id, name: runtime.config.name, error }))
+      });
       return;
     }
-    const guildId = request.query.guildId;
-    if (typeof guildId !== "string" || !guildId) {
-      response.status(400).json({ error: "Select a server first." });
-      return;
-    }
-    const guild = await runtime.client.guilds.fetch(guildId);
-    const channels = await guild.channels.fetch();
-    response.json({
-      channels: [...channels.values()]
-        .filter((channel) => channel && channel.type === ChannelType.GuildVoice)
-        .map((channel) => ({ id: channel.id, name: channel.name, parentName: channel.parent?.name || null }))
-    });
-  } catch (error) {
-    sendError(response, error, error.status || 502);
-  }
-});
 
-app.put("/api/bots/:botId/channel", requireAuth, async (request, response) => {
-  try {
-    const runtime = getBot(request.params.botId);
-    if (!runtime.client?.isReady()) throw new Error("This bot is not online.");
-    const { guildId, channelId } = request.body || {};
-    if (typeof guildId !== "string" || typeof channelId !== "string" || !guildId) {
-      throw new Error("Select a server and voice channel.");
-    }
-    const guild = await runtime.client.guilds.fetch(guildId);
-    if (!channelId) {
+    fleetChannelId = channelId;
+    const guildIds = new Map(validations.map(({ runtime, guildId }) => [runtime.config.id, guildId]));
+    for (const runtime of bots.values()) {
       if (runtime.voiceConnection) stopBot(runtime);
-      runtime.guildId = guild.id;
-      runtime.channelId = "";
+      runtime.channelId = channelId;
+      runtime.guildId = guildIds.get(runtime.config.id) || "";
       runtime.error = null;
-      response.json({ bot: botSummary(runtime) });
-      return;
     }
-    const channel = await guild.channels.fetch(channelId);
-    if (!channel || channel.type !== ChannelType.GuildVoice) {
-      throw new Error("Select a valid voice channel.");
-    }
-    if (runtime.voiceConnection) stopBot(runtime);
-    runtime.guildId = guild.id;
-    runtime.channelId = channel.id;
-    runtime.error = null;
-    response.json({ bot: botSummary(runtime) });
+    response.json({
+      channelId: fleetChannelId,
+      validatedBots: validations.length,
+      pendingBots: bots.size - validations.length
+    });
   } catch (error) {
     sendError(response, error, error.status || 400);
   }
@@ -314,13 +292,17 @@ app.put("/api/bots/:botId/channel", requireAuth, async (request, response) => {
 
 async function startBot(runtime, audio) {
   if (!runtime.client?.isReady()) throw new Error(`${runtime.config.name} is not online.`);
-  if (!runtime.guildId || !runtime.channelId) throw new Error(`${runtime.config.name}: select a server and voice channel first.`);
+  if (!runtime.channelId) throw new Error(`${runtime.config.name}: set the shared voice channel ID first.`);
   if (!audio || !fs.existsSync(audio.filePath)) throw new Error("Upload or select an audio file first.");
 
-  const guild = await runtime.client.guilds.fetch(runtime.guildId);
-  const channel = await guild.channels.fetch(runtime.channelId);
+  const channel = await runtime.client.channels.fetch(runtime.channelId);
   if (!channel || channel.type !== ChannelType.GuildVoice) {
     throw new Error(`${runtime.config.name}: the selected voice channel is no longer available.`);
+  }
+  const guild = channel.guild;
+  const permissions = channel.permissionsFor(runtime.client.user);
+  if (!permissions?.has(["ViewChannel", "Connect", "Speak"])) {
+    throw new Error(`${runtime.config.name}: the bot needs View Channel, Connect, and Speak permissions in the selected channel.`);
   }
 
   stopBot(runtime);
@@ -407,8 +389,8 @@ function setVoiceFlags(runtime, change) {
 }
 
 app.post("/api/control", requireAuth, async (request, response) => {
-  const { action, botIds, audioId } = request.body || {};
-  const allowedActions = new Set(["start", "start-all", "stop", "stop-all", "mute-all", "unmute-all", "deafen-all", "undeafen-all"]);
+  const { action, audioId } = request.body || {};
+  const allowedActions = new Set(["start-all", "stop-all", "mute-all", "unmute-all", "deafen-all", "undeafen-all"]);
   if (!allowedActions.has(action)) {
     response.status(400).json({ error: "Choose a valid bot action." });
     return;
@@ -416,24 +398,17 @@ app.post("/api/control", requireAuth, async (request, response) => {
 
   let targets;
   if (action === "start-all") {
-    targets = [...bots.values()];
-  } else if (action.endsWith("-all")) {
-    targets = [...bots.values()].filter((bot) => bot.voiceConnection);
+    targets = [...bots.values()].filter((bot) => bot.client && process.env[bot.config.tokenEnv]);
+    if (!targets.length) {
+      response.status(409).json({ error: "No bot tokens are configured. Add the DISCORD_BOT_TOKEN_XX environment variables in Render first." });
+      return;
+    }
   } else {
-    if (!Array.isArray(botIds) || botIds.length === 0) {
-      response.status(400).json({ error: "Select at least one bot." });
-      return;
-    }
-    try {
-      targets = [...new Set(botIds)].map(getBot);
-    } catch (error) {
-      sendError(response, error, error.status || 400);
-      return;
-    }
+    targets = [...bots.values()].filter((bot) => bot.voiceConnection);
   }
 
   let audio = null;
-  if (action === "start" || action === "start-all") {
+  if (action === "start-all") {
     audio = typeof audioId === "string" ? audioFiles.get(audioId) : null;
     if (!audio) {
       response.status(400).json({ error: "Upload or select an audio file before starting." });
@@ -443,8 +418,8 @@ app.post("/api/control", requireAuth, async (request, response) => {
 
   const results = await Promise.all(targets.map(async (runtime) => {
     try {
-      if (action === "start" || action === "start-all") await startBot(runtime, audio);
-      if (action === "stop" || action === "stop-all") stopBot(runtime);
+      if (action === "start-all") await startBot(runtime, audio);
+      if (action === "stop-all") stopBot(runtime);
       if (action === "mute-all") setVoiceFlags(runtime, { muted: true });
       if (action === "unmute-all") setVoiceFlags(runtime, { muted: false });
       if (action === "deafen-all") setVoiceFlags(runtime, { deafened: true });

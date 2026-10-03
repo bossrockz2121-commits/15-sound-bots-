@@ -1,9 +1,10 @@
 # Soundroom — 15 Discord Sound Bots
 
 Soundroom is a password-protected web dashboard and Node.js service for
-operating up to 15 Discord sound bots. The dashboard lets you choose voice
-channels per bot, upload audio, start or stop selected bots, and mute, unmute,
-deafen, or undeafen all bots currently connected to voice.
+operating up to 15 Discord sound bots together. Upload one audio track, set one
+voice-channel ID for the fleet, then start or stop every token-configured bot
+at once. Mute, unmute, deafen, and undeafen controls apply to every bot
+currently connected to voice.
 
 ## Configure
 
@@ -15,23 +16,24 @@ deafen, or undeafen all bots currently connected to voice.
    local development; on Render, enter tokens in the service's **Environment**
    settings. Never commit or share real bot tokens.
 3. Set a strong `DASHBOARD_PASSWORD` environment variable. The dashboard will
-   not permit control actions without it.
+   not permit control actions without it. Optionally set `VOICE_CHANNEL_ID` to
+   prefill the shared voice channel.
 4. Deploy the repository as a Render **Web Service** with **Build Command**
    `npm install` and **Start Command** `npm start`. Render supplies `PORT`;
    `/health` is the health-check endpoint.
-5. Open the service URL, sign in with `DASHBOARD_PASSWORD`, select each bot,
-   load its server and voice-channel choices, and select a channel.
-6. Upload a sound, select the bots to operate, and use the control bar. Start
-   and Stop apply to selected bots; Mute/Unmute/Deafen/Undeafen All apply to
-   every bot currently connected to a voice channel.
-7. Use **Start all** to start all 15 configured bot slots in parallel with the
-   selected sound. Use **Stop all** to disconnect every bot currently in
-   voice. Bots that are offline or have not been assigned a voice channel are
-   reported individually.
+5. Open the service URL, sign in with `DASHBOARD_PASSWORD`, enter one Discord
+   voice-channel ID, and apply it to the fleet. The channel's server is detected
+   automatically; every token-configured bot must be invited to that server.
+6. Upload one sound and use **Start all bots**. All bots with configured tokens
+   are started in parallel using that audio and channel. **Stop all bots**
+   disconnects the entire connected fleet. Mute/Unmute/Deafen/Undeafen apply to
+   every bot currently connected to voice. There is no per-bot selection.
 
 Bots with tokens connect to Discord when the service starts. Slots without a
-token remain visible but offline. Channel selections are held in memory until
-the service restarts. Audio uploads are limited to 50 MB and supported audio
+token remain visible but offline and are skipped by fleet start. A channel
+entered in the dashboard is held in memory until the service restarts; use
+`VOICE_CHANNEL_ID` in the service environment to restore it after a restart.
+Audio uploads are limited to 50 MB and supported audio
 formats (MP3, WAV, OGG, OPUS, M4A, AAC, FLAC, and WEBM).
 
 ## Render audio persistence

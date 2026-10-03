@@ -51,7 +51,7 @@
         <section class="metric-grid" aria-label="Bot summary">
           <article class="metric-card"><span class="metric-icon mint">◈</span><span class="metric-label">CONNECTED</span><strong id="metric-connected">0</strong><span class="metric-note">in voice channels</span></article>
           <article class="metric-card"><span class="metric-icon violet">♫</span><span class="metric-label">PLAYING</span><strong id="metric-playing">0</strong><span class="metric-note">streaming audio now</span></article>
-          <article class="metric-card"><span class="metric-icon amber">◉</span><span class="metric-label">SELECTED</span><strong id="metric-selected">0</strong><span class="metric-note">ready for commands</span></article>
+          <article class="metric-card"><span class="metric-icon amber">◉</span><span class="metric-label">TOKENS SET</span><strong id="configured-count">0</strong><span class="metric-note">managed together</span></article>
           <article class="metric-card dark-metric"><span class="metric-label">FLEET STATUS</span><strong id="fleet-status">STANDING BY</strong><span class="metric-note"><i class="tiny-dot"></i> All systems monitored</span></article>
         </section>
 
@@ -64,13 +64,28 @@
             <label class="audio-picker" for="audio-select"><span class="audio-icon">♫</span><span><small>SELECTED TRACK</small><select id="audio-select" aria-label="Select an uploaded audio file"><option value="">Upload a sound to get started</option></select></span><span class="chevron">⌄</span></label>
             <label class="button button-upload" for="audio-file"><span>＋</span> Upload audio<input id="audio-file" type="file" accept="audio/*,.mp3,.wav,.ogg,.opus,.m4a,.aac,.flac,.webm" hidden></label>
           </div>
-          <p class="upload-note" id="upload-note">Upload an audio file, then select bots and start playback.</p>
+          <p class="upload-note" id="upload-note">Upload one sound and start it on every bot with a configured token.</p>
+        </section>
+
+        <section class="control-panel channel-panel">
+          <div class="section-heading">
+            <div><p class="eyebrow">02 / SHARED DESTINATION</p><h2>One voice channel for every bot</h2></div>
+            <span class="section-tag">PASTE THE CHANNEL ID</span>
+          </div>
+          <form class="fleet-channel-form" id="fleet-channel-form">
+            <label class="channel-id-field" for="fleet-channel-id">
+              <span class="channel-id-icon">#</span>
+              <input id="fleet-channel-id" name="channelId" inputmode="numeric" autocomplete="off" maxlength="20" pattern="[0-9]{17,20}" placeholder="e.g. 123456789012345678" aria-describedby="channel-note">
+            </label>
+            <button class="button button-channel" id="apply-channel-button" type="submit">Apply to all bots <span>↗</span></button>
+          </form>
+          <p class="upload-note" id="channel-note">Every bot with a configured token uses this same channel. Server lookup is automatic. Set VOICE_CHANNEL_ID in Render to restore it after a restart.</p>
         </section>
 
         <section class="fleet-section" id="bot-grid">
           <div class="fleet-heading">
-            <div><p class="eyebrow">02 / BOT FLEET</p><h2>Your sound bots <span class="fleet-total">15</span></h2></div>
-            <div class="fleet-actions"><label class="select-all"><input type="checkbox" id="select-all"><span>Select all</span></label><span class="selected-label"><b id="selected-count">0</b> selected</span></div>
+            <div><p class="eyebrow">03 / BOT FLEET</p><h2>Your sound bots <span class="fleet-total">15</span></h2></div>
+            <span class="selected-label"><b id="fleet-online-count">0</b> online</span>
           </div>
           <div class="bot-grid" id="bot-list" aria-live="polite"></div>
         </section>
@@ -79,12 +94,10 @@
       </main>
 
       <div class="command-dock">
-        <div class="dock-selection"><span class="dock-orb">◈</span><span><strong><b id="dock-count">0</b> bots selected</strong><small>Choose bots from your fleet</small></span></div>
+        <div class="dock-selection"><span class="dock-orb">◈</span><span><strong>All configured bots</strong><small>Every control applies fleet-wide</small></span></div>
         <div class="dock-actions">
-          <button class="button button-primary" type="button" data-action="start">▶ <span>Start selected</span></button>
-          <button class="button button-primary button-batch" type="button" data-action="start-all" title="Start all 15 bots together">▶▶ <span>Start all</span></button>
-          <button class="button button-stop" type="button" data-action="stop">■ <span>Stop selected</span></button>
-          <button class="button button-stop button-batch-stop" type="button" data-action="stop-all" title="Stop every bot in voice">■ <span>Stop all</span></button>
+          <button class="button button-primary button-batch" type="button" data-action="start-all" title="Start every bot with a configured token together">▶▶ <span>Start all bots</span></button>
+          <button class="button button-stop button-batch-stop" type="button" data-action="stop-all" title="Stop every bot in voice">■ <span>Stop all bots</span></button>
           <span class="dock-divider"></span>
           <button class="button button-quiet" type="button" data-action="mute-all">◖ <span>Mute all</span></button>
           <button class="button button-quiet" type="button" data-action="unmute-all">◗ <span>Unmute all</span></button>

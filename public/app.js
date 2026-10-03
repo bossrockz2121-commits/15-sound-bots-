@@ -5,10 +5,10 @@ const loginError = document.querySelector("#login-error");
 const botList = document.querySelector("#bot-list");
 const audioSelect = document.querySelector("#audio-select");
 const uploadNote = document.querySelector("#upload-note");
-const selectedBots = new Set();
 let botState = [];
 let audioState = [];
 let lastBotRenderSignature = "";
+let appliedFleetChannelId = "";
 
 async function api(url, options = {}) {
   const response = await fetch(url, {
@@ -42,36 +42,16 @@ function setSignedIn(isSignedIn) {
   appShell.classList.toggle("hidden", !isSignedIn);
 }
 
-function statusLabel(status) {
-  return ({
-    ready: "READY",
-    connected: "IN VOICE",
-    connecting: "CONNECTING",
-    disconnected: "DISCONNECTED",
-    error: "ERROR",
-    token_missing: "NO TOKEN"
-  })[status] || String(status || "OFFLINE").toUpperCase();
-}
-
 function isOnline(bot) {
-  return ["ready", "connected"].includes(bot.status);
+  return Boolean(bot.online);
 }
 
 function renderBotCards() {
-  const previouslyFocused = document.activeElement?.dataset?.botId;
   botList.replaceChildren();
   botState.forEach((bot, index) => {
     const card = document.createElement("article");
-    card.className = `bot-card${selectedBots.has(bot.id) ? " selected" : ""}`;
-    const topline = document.createElement("div");
-    topline.className = "bot-topline";
-
-    const checkbox = document.createElement("input");
-    checkbox.className = "bot-check";
-    checkbox.type = "checkbox";
-    checkbox.checked = selectedBots.has(bot.id);
-    checkbox.setAttribute("aria-label", `Select ${bot.name}`);
-    checkbox.dataset.botId = bot.id;
+    card.className = "bot-card";
+    card.dataset.online = String(isOnline(bot));
 
     const avatar = document.createElement("span");
     avatar.className = "bot-avatar";
@@ -93,65 +73,16 @@ function renderBotCards() {
     const stateName = document.createElement("span");
     stateName.textContent = isOnline(bot) ? "ONLINE" : "OFFLINE";
     state.append(dot, stateName);
-    topline.append(checkbox, avatar, identity, state);
 
     const controls = document.createElement("div");
-    controls.className = "bot-controls";
-    const channelControls = document.createElement("div");
-    channelControls.className = "channel-controls";
-
-    const guildSelect = document.createElement("select");
-    guildSelect.setAttribute("aria-label", `Server for ${bot.name}`);
-    guildSelect.dataset.guildSelect = bot.id;
-    const guildPlaceholder = document.createElement("option");
-    guildPlaceholder.value = "";
-    guildPlaceholder.textContent = bot.guildId ? "Server selected" : "Load servers…";
-    guildSelect.append(guildPlaceholder);
-    guildSelect.value = "";
-    guildSelect.disabled = bot.status !== "ready" && bot.status !== "connected";
-    guildSelect.title = bot.guildId || "Load servers to choose a server";
-
-    const channelSelect = document.createElement("select");
-    channelSelect.setAttribute("aria-label", `Voice channel for ${bot.name}`);
-    channelSelect.dataset.channelSelect = bot.id;
-    const channelPlaceholder = document.createElement("option");
-    channelPlaceholder.value = "";
-    channelPlaceholder.textContent = bot.channelId ? `Channel saved · ${bot.channelId.slice(-5)}` : "Choose a channel…";
-    channelSelect.append(channelPlaceholder);
-    channelSelect.value = "";
-    channelSelect.disabled = true;
-    channelSelect.title = bot.channelId || "";
-    channelControls.append(guildSelect, channelSelect);
-
-    const loadButton = document.createElement("button");
-    loadButton.type = "button";
-    loadButton.className = "load-channels";
-    loadButton.dataset.loadChannels = bot.id;
-    loadButton.textContent = bot.guildId
-      ? `↻  Change server or channel${bot.channelId ? ` · saved ${bot.channelId.slice(-5)}` : ""}`
-      : "＋  Load servers & voice channels";
-    loadButton.disabled = guildSelect.disabled;
-    controls.append(channelControls, loadButton);
-
-    const botActions = document.createElement("div");
-    botActions.className = "bot-quick-actions";
-    const startButton = document.createElement("button");
-    startButton.type = "button";
-    startButton.className = "bot-quick-start";
-    startButton.dataset.botAction = "start";
-    startButton.dataset.quickBotId = bot.id;
-    startButton.textContent = "▶ Start";
-    startButton.disabled = !isOnline(bot);
-
-    const stopButton = document.createElement("button");
-    stopButton.type = "button";
-    stopButton.className = "bot-quick-stop";
-    stopButton.dataset.botAction = "stop";
-    stopButton.dataset.quickBotId = bot.id;
-    stopButton.textContent = "■ Stop";
-    stopButton.disabled = !bot.playing && bot.status !== "connected";
-    botActions.append(startButton, stopButton);
-    controls.append(botActions);
+    controls.className = "bot-state-details";
+    const connectionState = document.createElement("span");
+    connectionState.className = "bot-state-detail";
+    connectionState.textContent = bot.playing ? "Playing audio" : (bot.status === "connected" ? "In voice channel" : "Not in voice");
+    const audioStateText = document.createElement("span");
+    audioStateText.className = "bot-state-detail";
+    audioStateText.textContent = bot.audioName ? `♪ ${bot.audioName}` : (bot.channelId ? `Channel · ${bot.channelId}` : "No voice channel ID");
+    controls.append(connectionState, audioStateText);
 
     if (bot.error) {
       const error = document.createElement("p");
@@ -159,14 +90,13 @@ function renderBotCards() {
       error.textContent = bot.error;
       controls.append(error);
     }
-    card.append(topline, controls);
+
+    const topLine = document.createElement("div");
+    topLine.className = "bot-topline";
+    topLine.append(avatar, identity, state);
+    card.append(topLine, controls);
     botList.append(card);
   });
-
-  updateSelectionSummary();
-  if (previouslyFocused) {
-    botList.querySelector(`[data-bot-id="${CSS.escape(previouslyFocused)}"]`)?.focus();
-  }
 }
 
 function renderAudio() {
@@ -185,22 +115,16 @@ function renderAudio() {
   audioSelect.value = audioState.some((audio) => audio.id === selected) ? selected : (audioState[0]?.id || "");
 }
 
-function updateSelectionSummary() {
-  const count = selectedBots.size;
-  document.querySelector("#selected-count").textContent = count;
-  document.querySelector("#dock-count").textContent = count;
-  document.querySelector("#metric-selected").textContent = count;
-  document.querySelector("#select-all").checked = botState.length > 0 && count === botState.length;
-  document.querySelector("#select-all").indeterminate = count > 0 && count < botState.length;
-}
-
 function updateMetrics() {
   const connected = botState.filter((bot) => bot.status === "connected").length;
   const playing = botState.filter((bot) => bot.playing).length;
-  const online = botState.filter((bot) => ["ready", "connected"].includes(bot.status)).length;
+  const online = botState.filter(isOnline).length;
   document.querySelector("#online-count").textContent = online;
   document.querySelector("#metric-connected").textContent = connected;
   document.querySelector("#metric-playing").textContent = playing;
+  const tokenBots = botState.filter((bot) => bot.hasToken).length;
+  document.querySelector("#configured-count").textContent = tokenBots;
+  document.querySelector("#fleet-online-count").textContent = online;
   const fleetStatus = document.querySelector("#fleet-status");
   fleetStatus.textContent = botState.some((bot) => bot.status === "error") ? "CHECK FLEET" : (connected ? "SOUND ON" : "STANDING BY");
   document.querySelector("#gateway-state").textContent = online ? `${online} bot${online === 1 ? "" : "s"} online` : "Waiting for bot tokens";
@@ -210,63 +134,16 @@ async function refreshStatus() {
   const data = await api("/api/status");
   botState = data.bots;
   audioState = data.audio;
-  for (const id of [...selectedBots]) {
-    if (!botState.some((bot) => bot.id === id)) selectedBots.delete(id);
-  }
+  appliedFleetChannelId = data.fleetChannelId || "";
+  const channelInput = document.querySelector("#fleet-channel-id");
+  if (document.activeElement !== channelInput) channelInput.value = appliedFleetChannelId;
   const signature = JSON.stringify(botState);
   if (signature !== lastBotRenderSignature) {
     renderBotCards();
     lastBotRenderSignature = signature;
-  } else {
-    updateSelectionSummary();
   }
   renderAudio();
   updateMetrics();
-}
-
-async function loadGuilds(botId) {
-  const guildSelect = botList.querySelector(`[data-guild-select="${CSS.escape(botId)}"]`);
-  const channelSelect = botList.querySelector(`[data-channel-select="${CSS.escape(botId)}"]`);
-  const button = botList.querySelector(`[data-load-channels="${CSS.escape(botId)}"]`);
-  button.disabled = true;
-  button.textContent = "Loading servers…";
-  try {
-    const data = await api(`/api/bots/${encodeURIComponent(botId)}/guilds`);
-    guildSelect.replaceChildren(new Option("Choose a server…", ""));
-    data.guilds.forEach((guild) => guildSelect.append(new Option(guild.name, guild.id)));
-    const current = botState.find((bot) => bot.id === botId);
-    guildSelect.value = data.guilds.some((guild) => guild.id === current?.guildId) ? current.guildId : "";
-    channelSelect.replaceChildren(new Option("Choose a channel…", ""));
-    channelSelect.disabled = !guildSelect.value;
-    button.textContent = "↻  Change server or channel";
-    if (guildSelect.value) await loadChannels(botId, guildSelect.value);
-  } catch (error) {
-    button.textContent = "＋  Load servers & voice channels";
-    toast(error.message, true);
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function loadChannels(botId, guildId) {
-  const channelSelect = botList.querySelector(`[data-channel-select="${CSS.escape(botId)}"]`);
-  channelSelect.disabled = true;
-  channelSelect.replaceChildren(new Option("Loading channels…", ""));
-  try {
-    const data = await api(`/api/bots/${encodeURIComponent(botId)}/channels?guildId=${encodeURIComponent(guildId)}`);
-    channelSelect.replaceChildren(new Option("Choose a voice channel…", ""));
-    data.channels.forEach((channel) => {
-      const prefix = channel.parentName ? `${channel.parentName} / ` : "";
-      channelSelect.append(new Option(`${prefix}${channel.name}`, channel.id));
-    });
-    const current = botState.find((bot) => bot.id === botId);
-    channelSelect.value = data.channels.some((channel) => channel.id === current?.channelId) ? current.channelId : "";
-    channelSelect.disabled = false;
-    if (!data.channels.length) toast("No voice channels found for this bot in that server.", true);
-  } catch (error) {
-    channelSelect.replaceChildren(new Option("Could not load channels", ""));
-    toast(error.message, true);
-  }
 }
 
 loginForm.addEventListener("submit", async (event) => {
@@ -289,7 +166,6 @@ document.querySelector("#logout-button").addEventListener("click", async () => {
   } catch (error) {
     toast(error.message, true);
   } finally {
-    selectedBots.clear();
     setSignedIn(false);
   }
 });
@@ -303,94 +179,28 @@ document.querySelector("#refresh-button").addEventListener("click", async () => 
   }
 });
 
-document.querySelector("#select-all").addEventListener("change", (event) => {
-  selectedBots.clear();
-  if (event.target.checked) botState.forEach((bot) => selectedBots.add(bot.id));
-  renderBotCards();
-});
-
-botList.addEventListener("change", async (event) => {
-  const botId = event.target.dataset.botId;
-  if (botId) {
-    if (event.target.checked) selectedBots.add(botId);
-    else selectedBots.delete(botId);
-    event.target.closest(".bot-card").classList.toggle("selected", event.target.checked);
-    updateSelectionSummary();
+document.querySelector("#fleet-channel-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = document.querySelector("#apply-channel-button");
+  const channelId = document.querySelector("#fleet-channel-id").value.trim();
+  if (!/^\d{17,20}$/.test(channelId)) {
+    toast("Enter a valid Discord voice channel ID (17–20 digits).", true);
     return;
   }
-
-  const guildBotId = event.target.dataset.guildSelect;
-  if (guildBotId) {
-    if (event.target.value) {
-      try {
-        await api(`/api/bots/${encodeURIComponent(guildBotId)}/channel`, {
-          method: "PUT",
-          body: JSON.stringify({ guildId: event.target.value, channelId: "" })
-        });
-        const current = botState.find((bot) => bot.id === guildBotId);
-        if (current) {
-          current.guildId = event.target.value;
-          current.channelId = "";
-        }
-        await loadChannels(guildBotId, event.target.value);
-      } catch (error) {
-        toast(error.message, true);
-      }
-    }
-    return;
+  button.disabled = true;
+  try {
+    const result = await api("/api/fleet/channel", {
+      method: "PUT",
+      body: JSON.stringify({ channelId })
+    });
+    appliedFleetChannelId = result.channelId;
+    await refreshStatus();
+    toast(`Voice channel applied. ${result.validatedBots} online bots verified; ${result.pendingBots} will use it when online.`);
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
   }
-
-  const channelBotId = event.target.dataset.channelSelect;
-  if (channelBotId && event.target.value) {
-    const card = event.target.closest(".bot-card");
-    const guildId = card.querySelector(`[data-guild-select="${CSS.escape(channelBotId)}"]`).value;
-    try {
-      await api(`/api/bots/${encodeURIComponent(channelBotId)}/channel`, {
-        method: "PUT",
-        body: JSON.stringify({ guildId, channelId: event.target.value })
-      });
-      toast("Voice channel saved for this bot.");
-      await refreshStatus();
-    } catch (error) {
-      toast(error.message, true);
-    }
-  }
-});
-
-botList.addEventListener("click", async (event) => {
-  const botActionButton = event.target.closest("[data-bot-action]");
-  if (botActionButton) {
-    const botId = botActionButton.dataset.quickBotId;
-    const action = botActionButton.dataset.botAction;
-    if (action === "start" && !audioSelect.value) {
-      toast("Upload and select an audio file first.", true);
-      return;
-    }
-    botActionButton.disabled = true;
-    try {
-      const data = await api("/api/control", {
-        method: "POST",
-        body: JSON.stringify({
-          action,
-          botIds: [botId],
-          audioId: action === "start" ? audioSelect.value : undefined
-        })
-      });
-      const result = data.results[0];
-      if (!result?.ok) toast(result?.error || "Bot action failed.", true);
-      else toast(`${result.bot.name} ${action === "start" ? "started" : "stopped"}.`);
-      if (!result?.ok) botActionButton.disabled = false;
-      await refreshStatus();
-    } catch (error) {
-      toast(error.message, true);
-    } finally {
-      botActionButton.disabled = false;
-    }
-    return;
-  }
-
-  const button = event.target.closest("[data-load-channels]");
-  if (button) await loadGuilds(button.dataset.loadChannels);
 });
 
 document.querySelector("#audio-file").addEventListener("change", async (event) => {
@@ -419,26 +229,28 @@ document.querySelector(".dock-actions").addEventListener("click", async (event) 
   const button = event.target.closest("[data-action]");
   if (!button) return;
   const action = button.dataset.action;
-  if (["start", "stop"].includes(action) && selectedBots.size === 0) {
-    toast("Select at least one bot from your fleet first.", true);
-    return;
-  }
-  if (["start", "start-all"].includes(action) && !audioSelect.value) {
+  if (action === "start-all" && !audioSelect.value) {
     toast("Upload and select an audio file first.", true);
     return;
+  }
+  if (action === "start-all") {
+    const enteredChannelId = document.querySelector("#fleet-channel-id").value.trim();
+    if (!enteredChannelId || enteredChannelId !== appliedFleetChannelId) {
+      toast("Enter the shared voice channel ID and apply it to all bots first.", true);
+      return;
+    }
   }
 
   const previousLabel = button.innerHTML;
   button.disabled = true;
-  if (["start", "start-all"].includes(action)) button.querySelector("span").textContent = "Starting…";
-  if (["stop", "stop-all"].includes(action)) button.querySelector("span").textContent = "Stopping…";
+  if (action === "start-all") button.querySelector("span").textContent = "Starting all…";
+  if (action === "stop-all") button.querySelector("span").textContent = "Stopping all…";
   try {
     const data = await api("/api/control", {
       method: "POST",
       body: JSON.stringify({
         action,
-        botIds: ["start", "stop"].includes(action) ? [...selectedBots] : undefined,
-        audioId: ["start", "start-all"].includes(action) ? audioSelect.value : undefined
+        audioId: action === "start-all" ? audioSelect.value : undefined
       })
     });
     const failures = data.results.filter((result) => !result.ok);
