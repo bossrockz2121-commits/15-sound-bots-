@@ -29,19 +29,20 @@ currently connected to voice.
    blocks the other bots; failed bots show their individual error in the
    dashboard.
 6. Upload one sound and use **Start all bots** to play it after the bots have
-   joined. Audio playback also requires Speak permission. **Stop all bots**
-   disconnects the entire connected fleet. Mute/Unmute/Deafen/Undeafen apply to
-   every bot currently connected to voice. There is no per-bot selection.
+   joined. Audio playback also requires Speak permission. **Disconnect all bots**
+   stops playback and disconnects every bot, including a pending voice join.
+   Joining and disconnecting are user-controlled; the app does not automatically
+   retry or rejoin voice. Mute/Unmute/Deafen/Undeafen apply to every bot
+   currently connected to voice. There is no per-bot selection.
 7. If a bot does not join voice, check its card for the specific connection
    error. Confirm its token is correct, it is invited to the selected server,
    and it has View Channel and Connect permissions in the channel.
    Voice-state gateway updates are enabled by the app; no privileged portal
    intent is required for `GuildVoiceStates`.
-   The voice handshake now waits up to 45 seconds, retries a stalled signalling
-   request, and leaves a still-negotiating connection alive rather than
-   disconnecting it at the old 20-second timeout. If the card reports that the
-   connection is still `connecting`, wait for the status refresh; if it remains
-   stuck in `connecting`, check the host's outbound Discord voice connectivity.
+   The voice handshake waits up to 45 seconds and leaves a still-negotiating
+   connection alive rather than disconnecting it at timeout. If it remains
+   stuck in `connecting`, use **Disconnect all bots** to cancel it, then check
+   the host's outbound Discord voice connectivity before manually joining again.
 
 Bots with tokens connect to Discord when the service starts. Slots without a
 token remain visible but offline and are skipped by fleet start. A channel

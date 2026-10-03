@@ -262,7 +262,7 @@ document.querySelector(".dock-actions").addEventListener("click", async (event) 
   const previousLabel = button.innerHTML;
   button.disabled = true;
   if (action === "start-all") button.querySelector("span").textContent = "Starting all…";
-  if (action === "stop-all") button.querySelector("span").textContent = "Stopping all…";
+  if (action === "stop-all" || action === "disconnect-all") button.querySelector("span").textContent = "Disconnecting…";
   try {
     const data = await api("/api/control", {
       method: "POST",
@@ -273,7 +273,7 @@ document.querySelector(".dock-actions").addEventListener("click", async (event) 
     });
     const failures = data.results.filter((result) => !result.ok);
     const successes = data.results.length - failures.length;
-    if (!data.results.length) toast("No bots are currently connected to voice.");
+    if (!data.results.length) toast("No bots are connected or joining voice.");
     else if (failures.length) {
       toast(`${successes} of ${data.results.length} bots completed; ${failures.length} failed. ${failures[0].error}`, true);
     } else {

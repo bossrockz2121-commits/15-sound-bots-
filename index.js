@@ -38,7 +38,6 @@ const app = express();
 const port = Number(process.env.PORT || 3000);
 const sessionLifetimeMs = 12 * 60 * 60 * 1000;
 const voiceReadyTimeoutMs = 45_000;
-const voiceSignallingRetryMs = 18_000;
 const isProduction = process.env.NODE_ENV === "production";
 const configuredChannelIds = [...new Set(config.bots.map((bot) => bot.voiceChannelId).filter(Boolean))];
 let fleetChannelId = process.env.VOICE_CHANNEL_ID || (configuredChannelIds.length === 1 ? configuredChannelIds[0] : "");
@@ -354,13 +353,26 @@ async function joinBot(runtime) {
     throw new Error(`${runtime.config.name}: the bot needs View Channel and Connect permissions in the selected channel.`);
   }
 
-  if (
-    runtime.voiceConnection?.joinConfig?.channelId === channel.id &&
-    runtime.voiceConnection.state.status === VoiceConnectionStatus.Ready
-  ) {
-    runtime.guildId = guild.id;
-    runtime.status = "connected";
-    return runtime.voiceConnection;
+  if (runtime.voiceConnection?.joinConfig?.channelId === channel.id) {
+    if (runtime.voiceConnection.state.status === VoiceConnectionStatus.Ready) {
+      runtime.guildId = guild.id;
+      runtime.status = "connected";
+      return runtime.voiceConnection;
+    }
+    if (
+      runtime.voiceConnection.state.status === VoiceConnectionStatus.Signalling ||
+      runtime.voiceConnection.state.status === VoiceConnectionStatus.Connecting
+    ) {
+      const pendingConnection = runtime.voiceConnection;
+      await waitForVoiceReady(pendingConnection, runtime);
+      if (runtime.voiceConnection !== pendingConnection) {
+        throw new Error(`${runtime.config.name}: the pending voice connection was cancelled.`);
+      }
+      runtime.guildId = guild.id;
+      runtime.status = "connected";
+      runtime.error = null;
+      return pendingConnection;
+    }
   }
 
   stopBot(runtime);
@@ -375,44 +387,18 @@ async function joinBot(runtime) {
   const connection = joinVoiceChannel(joinOptions);
   runtime.voiceConnection = connection;
   runtime.status = "connecting";
-  let recoveryAttempts = 0;
-  let recoveryResetTimer;
   connection.on("stateChange", (_oldState, newState) => {
     if (runtime.voiceConnection !== connection) return;
     if (newState.status === VoiceConnectionStatus.Ready) {
       runtime.status = "connected";
       runtime.error = null;
-      clearTimeout(recoveryResetTimer);
-      recoveryResetTimer = setTimeout(() => {
-        recoveryAttempts = 0;
-      }, 30_000);
-      recoveryResetTimer.unref?.();
     } else if (newState.status === VoiceConnectionStatus.Connecting || newState.status === VoiceConnectionStatus.Signalling) {
       runtime.status = "connecting";
     } else if (newState.status === VoiceConnectionStatus.Disconnected) {
       runtime.status = "disconnected";
       runtime.playing = false;
       const closeCode = newState.closeCode ? ` Voice WebSocket close code: ${newState.closeCode}.` : "";
-      runtime.error = `${runtime.config.name}: Discord disconnected the voice session.${closeCode}`;
-      if (recoveryAttempts < 3) {
-        recoveryAttempts += 1;
-        const attempt = recoveryAttempts;
-        runtime.error += ` Trying to reconnect (${attempt}/3).`;
-        const recoveryTimer = setTimeout(() => {
-          if (runtime.voiceConnection !== connection || connection.state.status !== VoiceConnectionStatus.Disconnected) return;
-          const accepted = connection.rejoin({
-            channelId: channel.id,
-            selfMute: runtime.muted,
-            selfDeaf: runtime.deafened
-          });
-          if (!accepted) {
-            runtime.error = `${runtime.config.name}: Discord rejected automatic reconnect ${attempt}/3. Click Join to retry.`;
-          }
-        }, 1_000 * 2 ** (attempt - 1));
-        recoveryTimer.unref?.();
-      } else {
-        runtime.error += " Automatic reconnect limit reached. Click Join to retry.";
-      }
+      runtime.error = `${runtime.config.name}: Discord disconnected the voice session.${closeCode} Click Join to reconnect.`;
     }
   });
   connection.on("error", (error) => {
@@ -420,19 +406,6 @@ async function joinBot(runtime) {
     runtime.error = `Voice connection error: ${error.message}`;
     console.error(`${runtime.config.id}: voice connection error:`, error);
   });
-  const retryTimer = setTimeout(() => {
-    if (runtime.voiceConnection !== connection || connection.state.status !== VoiceConnectionStatus.Signalling) return;
-    const accepted = connection.rejoin({
-      channelId: channel.id,
-      selfMute: runtime.muted,
-      selfDeaf: runtime.deafened
-    });
-    if (!accepted) {
-      runtime.error = `${runtime.config.name}: Discord did not accept a retry for the voice handshake.`;
-    }
-  }, voiceSignallingRetryMs);
-  retryTimer.unref?.();
-
   try {
     await waitForVoiceReady(connection, runtime);
     runtime.guildId = guild.id;
@@ -452,14 +425,13 @@ async function joinBot(runtime) {
       runtime.status = "connecting";
     } else {
       if (connection.state.status !== VoiceConnectionStatus.Destroyed) connection.destroy();
-      clearTimeout(recoveryResetTimer);
-      runtime.voiceConnection = null;
-      runtime.status = runtime.client?.isReady() ? "ready" : "error";
+      if (runtime.voiceConnection === connection) {
+        runtime.voiceConnection = null;
+        runtime.status = runtime.client?.isReady() ? "ready" : "error";
+      }
     }
-    runtime.error = connectionError.message;
+    if (runtime.voiceConnection === connection) runtime.error = connectionError.message;
     throw connectionError;
-  } finally {
-    clearTimeout(retryTimer);
   }
 }
 
@@ -502,7 +474,9 @@ function stopBot(runtime) {
     runtime.player = null;
   }
   if (runtime.voiceConnection) {
-    runtime.voiceConnection.destroy();
+    if (runtime.voiceConnection.state.status !== VoiceConnectionStatus.Destroyed) {
+      runtime.voiceConnection.destroy();
+    }
     runtime.voiceConnection = null;
   }
   runtime.playing = false;
@@ -528,7 +502,7 @@ function setVoiceFlags(runtime, change) {
 
 app.post("/api/control", requireAuth, async (request, response) => {
   const { action, audioId } = request.body || {};
-  const allowedActions = new Set(["start-all", "stop-all", "mute-all", "unmute-all", "deafen-all", "undeafen-all"]);
+  const allowedActions = new Set(["start-all", "stop-all", "disconnect-all", "mute-all", "unmute-all", "deafen-all", "undeafen-all"]);
   if (!allowedActions.has(action)) {
     response.status(400).json({ error: "Choose a valid bot action." });
     return;
@@ -557,7 +531,7 @@ app.post("/api/control", requireAuth, async (request, response) => {
   const results = await Promise.all(targets.map(async (runtime) => {
     try {
       if (action === "start-all") await startBot(runtime, audio);
-      if (action === "stop-all") stopBot(runtime);
+      if (action === "stop-all" || action === "disconnect-all") stopBot(runtime);
       if (action === "mute-all") setVoiceFlags(runtime, { muted: true });
       if (action === "unmute-all") setVoiceFlags(runtime, { muted: false });
       if (action === "deafen-all") setVoiceFlags(runtime, { deafened: true });
