@@ -143,8 +143,10 @@ code { color: var(--mint); font: 11px "DM Mono", monospace; }
 .bot-identity small { display: block; margin-top: 3px; color: #7d8277; font: 8px "DM Mono", monospace; }
 .bot-state { display: flex; align-items: center; gap: 5px; color: #969b90; font: 8px "DM Mono", monospace; white-space: nowrap; }
 .bot-state i { width: 5px; height: 5px; border-radius: 50%; background: #676c62; }
-.bot-state[data-status="connected"] i, .bot-state[data-status="ready"] i { background: var(--mint); box-shadow: 0 0 6px #c9f36a75; }
-.bot-state[data-status="error"] i, .bot-state[data-status="token_missing"] i { background: var(--red); }
+.bot-state.online { padding: 4px 6px; border: 1px solid #53633a; border-radius: 999px; color: var(--mint); background: #c9f36a0d; }
+.bot-state.online i { background: var(--mint); box-shadow: 0 0 6px #c9f36a75; }
+.bot-state.offline { padding: 4px 6px; border: 1px solid #493631; border-radius: 999px; color: #ff9a8e; background: #ff81750d; }
+.bot-state.offline i { background: var(--red); }
 .bot-state[data-status="connecting"] i { background: var(--amber); }
 .bot-controls { margin: 12px 0 0 23px; }
 .channel-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
@@ -152,6 +154,12 @@ code { color: var(--mint); font: 11px "DM Mono", monospace; }
 .channel-controls select:disabled { opacity: .45; }
 .load-channels { width: 100%; margin-top: 6px; padding: 5px 0; border: 0; color: #aeb391; background: transparent; text-align: left; cursor: pointer; font-size: 9px; }
 .load-channels:hover { color: var(--mint); }
+.bot-quick-actions { display: flex; gap: 6px; margin-top: 8px; }
+.bot-quick-actions button { flex: 1; min-height: 27px; border: 1px solid #35392f; border-radius: 5px; color: #d0d4c8; background: #1b1e19; cursor: pointer; font-size: 9px; font-weight: 700; }
+.bot-quick-actions .bot-quick-start { border-color: #52613b; color: var(--mint); background: #23291b; }
+.bot-quick-actions .bot-quick-stop { border-color: #59403a; color: #ffad98; background: #2a1d1a; }
+.bot-quick-actions button:hover:not(:disabled) { filter: brightness(1.2); }
+.bot-quick-actions button:disabled { opacity: .4; cursor: not-allowed; }
 .bot-error { margin: 5px 0 0; color: var(--red); font-size: 9px; line-height: 1.4; }
 .page-footer { display: flex; justify-content: space-between; margin-top: 26px; color: #61665c; font: 8px "DM Mono", monospace; letter-spacing: .7px; }
 .footer-separator { padding: 0 7px; color: #3f443b; }

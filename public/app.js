@@ -53,6 +53,10 @@ function statusLabel(status) {
   })[status] || String(status || "OFFLINE").toUpperCase();
 }
 
+function isOnline(bot) {
+  return ["ready", "connected"].includes(bot.status);
+}
+
 function renderBotCards() {
   const previouslyFocused = document.activeElement?.dataset?.botId;
   botList.replaceChildren();
@@ -82,11 +86,12 @@ function renderBotCards() {
     identity.append(name, botName);
 
     const state = document.createElement("span");
-    state.className = "bot-state";
+    state.className = `bot-state ${isOnline(bot) ? "online" : "offline"}`;
     state.dataset.status = bot.status;
+    state.title = bot.error || (isOnline(bot) ? "Discord bot is online" : "Discord bot is offline");
     const dot = document.createElement("i");
     const stateName = document.createElement("span");
-    stateName.textContent = statusLabel(bot.status);
+    stateName.textContent = isOnline(bot) ? "ONLINE" : "OFFLINE";
     state.append(dot, stateName);
     topline.append(checkbox, avatar, identity, state);
 
@@ -127,6 +132,26 @@ function renderBotCards() {
       : "＋  Load servers & voice channels";
     loadButton.disabled = guildSelect.disabled;
     controls.append(channelControls, loadButton);
+
+    const botActions = document.createElement("div");
+    botActions.className = "bot-quick-actions";
+    const startButton = document.createElement("button");
+    startButton.type = "button";
+    startButton.className = "bot-quick-start";
+    startButton.dataset.botAction = "start";
+    startButton.dataset.quickBotId = bot.id;
+    startButton.textContent = "▶ Start";
+    startButton.disabled = !isOnline(bot);
+
+    const stopButton = document.createElement("button");
+    stopButton.type = "button";
+    stopButton.className = "bot-quick-stop";
+    stopButton.dataset.botAction = "stop";
+    stopButton.dataset.quickBotId = bot.id;
+    stopButton.textContent = "■ Stop";
+    stopButton.disabled = !bot.playing && bot.status !== "connected";
+    botActions.append(startButton, stopButton);
+    controls.append(botActions);
 
     if (bot.error) {
       const error = document.createElement("p");
@@ -333,6 +358,37 @@ botList.addEventListener("change", async (event) => {
 });
 
 botList.addEventListener("click", async (event) => {
+  const botActionButton = event.target.closest("[data-bot-action]");
+  if (botActionButton) {
+    const botId = botActionButton.dataset.quickBotId;
+    const action = botActionButton.dataset.botAction;
+    if (action === "start" && !audioSelect.value) {
+      toast("Upload and select an audio file first.", true);
+      return;
+    }
+    botActionButton.disabled = true;
+    try {
+      const data = await api("/api/control", {
+        method: "POST",
+        body: JSON.stringify({
+          action,
+          botIds: [botId],
+          audioId: action === "start" ? audioSelect.value : undefined
+        })
+      });
+      const result = data.results[0];
+      if (!result?.ok) toast(result?.error || "Bot action failed.", true);
+      else toast(`${result.bot.name} ${action === "start" ? "started" : "stopped"}.`);
+      if (!result?.ok) botActionButton.disabled = false;
+      await refreshStatus();
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      botActionButton.disabled = false;
+    }
+    return;
+  }
+
   const button = event.target.closest("[data-load-channels]");
   if (button) await loadGuilds(button.dataset.loadChannels);
 });
@@ -398,8 +454,8 @@ document.querySelector(".dock-actions").addEventListener("click", async (event) 
   } catch (error) {
     toast(error.message, true);
   } finally {
-    button.disabled = false;
     button.innerHTML = previousLabel;
+    button.disabled = false;
   }
 });
 
