@@ -28,13 +28,12 @@ currently connected to voice.
    View Channel and Connect permissions. A problem with one bot no longer
    blocks the other bots; failed bots show their individual error in the
    dashboard.
-6. Upload one sound, select it, and click **Start audio** (or **Start all bots**
-   in the bottom control bar) to play it after the bots have joined. Audio
-   playback also requires Speak permission. **Disconnect all bots**
-   stops playback and disconnects every bot, including a pending voice join.
+6. Use the single control row at the bottom: **Start** plays the selected track,
+   **Stop** stops audio without leaving voice, **Join VC** joins the selected
+   channel, and **Disconnect VC** leaves it. Mute/Unmute/Deafen/Undeafen apply
+   fleet-wide. Audio playback also requires Speak permission.
    Joining and disconnecting are user-controlled; the app does not automatically
-   retry or rejoin voice. Mute/Unmute/Deafen/Undeafen apply to every bot
-   currently connected to voice. There is no per-bot selection.
+   retry or rejoin voice. There is no per-bot selection.
 7. If a bot does not join voice, check its card for the specific connection
    error. Confirm its token is correct, it is invited to the selected server,
    and it has View Channel and Connect permissions in the channel.

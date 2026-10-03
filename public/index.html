@@ -63,9 +63,8 @@
           <div class="audio-row">
             <label class="audio-picker" for="audio-select"><span class="audio-icon">♫</span><span><small>SELECTED TRACK</small><select id="audio-select" aria-label="Select an uploaded audio file"><option value="">Upload a sound to get started</option></select></span><span class="chevron">⌄</span></label>
             <label class="button button-upload" for="audio-file"><span>＋</span> Upload audio<input id="audio-file" type="file" accept="audio/*,.mp3,.wav,.ogg,.opus,.m4a,.aac,.flac,.webm" hidden></label>
-            <button class="button button-primary button-audio-start" type="button" data-action="start-all" title="Play the selected audio on every configured bot">▶ <span>Start audio</span></button>
           </div>
-          <p class="upload-note" id="upload-note">Upload one sound and start it on every bot with a configured token.</p>
+          <p class="upload-note" id="upload-note">Upload and select a sound, then use Start in the control bar below.</p>
         </section>
 
         <section class="control-panel channel-panel">
@@ -78,9 +77,8 @@
               <span class="channel-id-icon">#</span>
               <input id="fleet-channel-id" name="channelId" inputmode="numeric" autocomplete="off" maxlength="20" pattern="[0-9]{17,20}" placeholder="e.g. 123456789012345678" aria-describedby="channel-note">
             </label>
-            <button class="button button-channel" id="apply-channel-button" type="submit">Join all bots <span>↗</span></button>
           </form>
-          <p class="upload-note" id="channel-note">Enter the channel ID and click Join all bots. Every token-configured bot will join this channel together.</p>
+          <p class="upload-note" id="channel-note">Enter the channel ID, then click Join VC in the control bar below.</p>
         </section>
 
         <section class="fleet-section" id="bot-grid">
@@ -95,11 +93,11 @@
       </main>
 
       <div class="command-dock">
-        <div class="dock-selection"><span class="dock-orb">◈</span><span><strong>All configured bots</strong><small>Every control applies fleet-wide</small></span></div>
         <div class="dock-actions">
-          <button class="button button-primary button-batch" type="button" data-action="start-all" title="Start every bot with a configured token together">▶▶ <span>Start all bots</span></button>
-          <button class="button button-stop button-batch-stop" type="button" data-action="disconnect-all" title="Stop playback and disconnect every bot, including pending joins">■ <span>Disconnect all bots</span></button>
-          <span class="dock-divider"></span>
+          <button class="button button-primary button-batch" type="button" data-action="start-all" title="Play selected audio on every joined bot">▶ <span>Start</span></button>
+          <button class="button button-stop" type="button" data-action="stop-all" title="Stop audio without leaving voice">■ <span>Stop</span></button>
+          <button class="button button-channel" type="button" data-action="join-all" title="Join the selected voice channel with all configured bots">↗ <span>Join VC</span></button>
+          <button class="button button-stop button-batch-stop" type="button" data-action="disconnect-all" title="Disconnect every bot from voice">⇥ <span>Disconnect VC</span></button>
           <button class="button button-quiet" type="button" data-action="mute-all">◖ <span>Mute all</span></button>
           <button class="button button-quiet" type="button" data-action="unmute-all">◗ <span>Unmute all</span></button>
           <button class="button button-quiet" type="button" data-action="deafen-all">⊘ <span>Deafen all</span></button>

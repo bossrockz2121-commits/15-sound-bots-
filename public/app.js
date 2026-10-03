@@ -203,15 +203,11 @@ document.querySelector("#refresh-button").addEventListener("click", async () => 
 
 document.querySelector("#fleet-channel-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const button = document.querySelector("#apply-channel-button");
-  const previousLabel = button.innerHTML;
   const channelId = document.querySelector("#fleet-channel-id").value.trim();
   if (!/^\d{17,20}$/.test(channelId)) {
     toast("Enter a valid Discord voice channel ID (17–20 digits).", true);
     return;
   }
-  button.disabled = true;
-  button.querySelector("span").textContent = "Joining…";
   try {
     const result = await api("/api/fleet/channel", {
       method: "PUT",
@@ -234,9 +230,6 @@ document.querySelector("#fleet-channel-form").addEventListener("submit", async (
     }
   } catch (error) {
     toast(error.message, true);
-  } finally {
-    button.innerHTML = previousLabel;
-    button.disabled = false;
   }
 });
 
@@ -266,6 +259,40 @@ document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-action]");
   if (!button) return;
   const action = button.dataset.action;
+  if (action === "join-all") {
+    const channelId = document.querySelector("#fleet-channel-id").value.trim();
+    if (!/^\d{17,20}$/.test(channelId)) {
+      toast("Enter a valid Discord voice channel ID before joining.", true);
+      return;
+    }
+
+    button.disabled = true;
+    const previousLabel = button.innerHTML;
+    button.querySelector("span").textContent = "Joining…";
+    try {
+      const result = await api("/api/fleet/channel", {
+        method: "PUT",
+        body: JSON.stringify({ channelId })
+      });
+      appliedFleetChannelId = result.channelId;
+      await refreshStatus();
+      const failures = result.results.filter((bot) => !bot.ok);
+      if (failures.length) {
+        const detail = failures.slice(0, 3).map((bot) => `${bot.name}: ${bot.error}`).join(" | ");
+        const others = failures.length > 3 ? ` | and ${failures.length - 3} more; see bot cards.` : "";
+        toast(`${result.joined} of ${result.total} bots joined. ${detail}${others}`, true);
+      } else {
+        toast(`All ${result.joined} bots joined the voice channel.`);
+      }
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      button.innerHTML = previousLabel;
+      button.disabled = false;
+    }
+    return;
+  }
+
   if (action === "start-all" && !audioSelect.value) {
     toast("Upload and select an audio file first.", true);
     return;
@@ -273,15 +300,16 @@ document.addEventListener("click", async (event) => {
   if (action === "start-all") {
     const enteredChannelId = document.querySelector("#fleet-channel-id").value.trim();
     if (!enteredChannelId || enteredChannelId !== appliedFleetChannelId) {
-      toast("Enter the voice channel ID and click Join all bots first.", true);
+      toast("Enter the voice channel ID and click Join VC first.", true);
       return;
     }
   }
 
   const previousLabel = button.innerHTML;
   button.disabled = true;
-  if (action === "start-all") button.querySelector("span").textContent = "Starting all…";
-  if (action === "stop-all" || action === "disconnect-all") button.querySelector("span").textContent = "Disconnecting…";
+  if (action === "start-all") button.querySelector("span").textContent = "Starting…";
+  if (action === "stop-all") button.querySelector("span").textContent = "Stopping…";
+  if (action === "disconnect-all") button.querySelector("span").textContent = "Leaving…";
   try {
     const data = await api("/api/control", {
       method: "POST",
@@ -292,11 +320,11 @@ document.addEventListener("click", async (event) => {
     });
     const failures = data.results.filter((result) => !result.ok);
     const successes = data.results.length - failures.length;
-    if (!data.results.length) toast("No bots are connected or joining voice.");
+    if (!data.results.length) toast(action === "stop-all" ? "No bots are playing audio." : "No bots are connected or joining voice.");
     else if (failures.length) {
       toast(`${successes} of ${data.results.length} bots completed; ${failures.length} failed. ${failures[0].error}`, true);
     } else {
-      const actionLabel = button.textContent.trim().replace(/^[▶■◖◗⊘◎]\s*/, "");
+      const actionLabel = button.querySelector("span").textContent;
       toast(`${actionLabel} applied to ${successes} bot${successes === 1 ? "" : "s"}.`);
     }
     await refreshStatus();

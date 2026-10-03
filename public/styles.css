@@ -128,7 +128,6 @@ code { color: var(--mint); font: 11px "DM Mono", monospace; }
 .button-batch-stop:hover { background: #422820; }
 .button-upload { height: 49px; padding: 0 16px; border-color: #414738; color: var(--mint); background: #1c2117; cursor: pointer; }
 .button-upload:hover { border-color: #778651; background: #242a1c; }
-.button-audio-start { min-height: 49px; white-space: nowrap; }
 .upload-note { margin: 9px 0 0 42px; color: #858a7e; font-size: 10px; }
 .upload-note.error { color: var(--red); }
 
@@ -174,15 +173,15 @@ code { color: var(--mint); font: 11px "DM Mono", monospace; }
 .page-footer { display: flex; justify-content: space-between; margin-top: 26px; color: #61665c; font: 8px "DM Mono", monospace; letter-spacing: .7px; }
 .footer-separator { padding: 0 7px; color: #3f443b; }
 
-.command-dock { position: fixed; z-index: 5; right: 0; bottom: 0; left: 236px; display: flex; align-items: center; justify-content: space-between; gap: 15px; min-height: 77px; padding: 12px 28px; border-top: 1px solid #33372e; background: #151713f2; backdrop-filter: blur(18px); }
+.command-dock { position: fixed; z-index: 5; right: 0; bottom: 0; left: 236px; display: flex; align-items: center; gap: 15px; min-height: 66px; padding: 10px 18px; border-top: 1px solid #33372e; background: #151713f2; backdrop-filter: blur(18px); }
 .dock-selection { display: flex; align-items: center; gap: 9px; min-width: 145px; }
 .dock-orb { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; color: var(--mint); background: #c9f36a13; }
 .dock-selection strong, .dock-selection small { display: block; }
 .dock-selection strong { color: #e8eade; font-size: 10px; }
 .dock-selection strong b { color: var(--mint); font: 11px "DM Mono", monospace; }
 .dock-selection small { margin-top: 3px; color: #7e8378; font-size: 8px; }
-.dock-actions { display: flex; align-items: center; gap: 6px; }
-.dock-actions .button { min-height: 35px; padding: 0 9px; font-size: 9px; white-space: nowrap; }
+.dock-actions { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; overflow-x: auto; }
+.dock-actions .button { flex: 0 0 auto; min-height: 35px; padding: 0 9px; font-size: 9px; white-space: nowrap; }
 .button-stop { border-color: #46302d; color: #ff9a8e; background: #291a18; }
 .button-stop:hover { background: #3a201c; }
 .button-quiet { border-color: #33372f; color: #b4b8ad; background: #1b1e19; }
@@ -204,16 +203,15 @@ code { color: var(--mint); font: 11px "DM Mono", monospace; }
 }
 @media (max-width: 950px) {
   .bot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .command-dock { align-items: flex-start; flex-direction: column; gap: 8px; padding: 10px 15px; }
-  .dock-selection { display: none; }
-  .dock-actions { width: 100%; justify-content: space-between; }
-  .dock-actions .button { flex: 1; }
+  .command-dock { align-items: center; padding: 10px 12px; }
+  .dock-actions { width: 100%; justify-content: flex-start; }
+  .dock-actions .button { flex: 0 0 auto; }
   .dock-divider { display: none; }
   .app-shell { padding-bottom: 66px; }
   .command-dock { min-height: 62px; }
 }
 @media (max-width: 650px) {
-  .app-shell { padding: 0 0 72px; }
+  .app-shell { padding: 0 0 84px; }
   .sidebar { position: static; width: auto; height: 56px; flex-direction: row; align-items: center; padding: 0 15px; border-right: 0; border-bottom: 1px solid var(--line); }
   .brand { margin: 0; }
   .brand-mark.small { width: 32px; height: 32px; }
@@ -256,8 +254,8 @@ code { color: var(--mint); font: 11px "DM Mono", monospace; }
   .bot-grid { grid-template-columns: 1fr; gap: 7px; }
   .bot-card { padding: 10px; }
   .page-footer { flex-direction: column; gap: 8px; font-size: 7px; }
-  .command-dock { left: 0; min-height: auto; padding: 8px; }
-  .dock-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
-  .dock-actions .button { min-height: 34px; padding: 0 4px; font-size: 8px; }
-  .toast-region { right: 12px; bottom: 128px; }
+  .command-dock { left: 0; min-height: 68px; padding: 8px; }
+  .dock-actions { justify-content: flex-start; gap: 5px; }
+  .dock-actions .button { min-height: 38px; padding: 0 8px; font-size: 9px; }
+  .toast-region { right: 12px; bottom: 88px; }
 }

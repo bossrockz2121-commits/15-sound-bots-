@@ -149,6 +149,13 @@ function sendError(response, error, status = 400) {
   response.status(status).json({ error: error.message || String(error) });
 }
 
+function explainDiscordAccessError(runtime, error) {
+  if (error.code === 50001 || error.code === "50001" || error.message === "Missing Access") {
+    return `${runtime.config.name}: this bot has Missing Access to the selected channel. Invite this bot to the server and grant View Channel and Connect on the channel/category.`;
+  }
+  return error.message || String(error);
+}
+
 function botSummary(runtime) {
   return {
     id: runtime.config.id,
@@ -263,9 +270,10 @@ app.put("/api/fleet/channel", requireAuth, async (request, response) => {
         await joinBot(runtime);
         return { id: runtime.config.id, name: runtime.config.name, ok: true, bot: botSummary(runtime) };
       } catch (error) {
-        runtime.error = error.message;
+        const message = explainDiscordAccessError(runtime, error);
+        runtime.error = message;
         console.error(`${runtime.config.id}: could not join voice channel ${channelId}:`, error);
-        return { id: runtime.config.id, name: runtime.config.name, ok: false, error: error.message, bot: botSummary(runtime) };
+        return { id: runtime.config.id, name: runtime.config.name, ok: false, error: message, bot: botSummary(runtime) };
       }
     }));
     const joined = results.filter((result) => result.ok).length;
@@ -316,6 +324,10 @@ function waitForVoiceReady(connection, runtime) {
       if (!runtime.voiceHandshake?.voiceStateSessionReceived) missing.push("bot voice session ID");
       if (!runtime.voiceHandshake?.voiceServerUpdateReceived) missing.push("voice-server update");
       if (!runtime.voiceHandshake?.voiceServerEndpointReceived) missing.push("a valid voice-server endpoint");
+      if (
+        runtime.voiceHandshake?.voiceStateSessionReceived &&
+        runtime.voiceHandshake?.voiceServerEndpointReceived
+      ) missing.push("voice network to become ready");
       const detail = missing.length ? ` Still waiting for ${missing.join(", ")}.` : "";
       const received = runtime.voiceHandshake?.voiceStateUpdateReceived &&
         runtime.voiceHandshake?.voiceServerEndpointReceived
@@ -341,7 +353,7 @@ function waitForVoiceReady(connection, runtime) {
           ? ` Discord voice WebSocket closed with code ${newState.closeCode}.`
           : "";
         reject(new Error(`${runtime.config.name}: Discord voice connection changed to ${newState.status}.${details}`));
-      } else if (newState.status === VoiceConnectionStatus.Disconnected && !_oldState) {
+      } else if (newState.status === VoiceConnectionStatus.Disconnected) {
         cleanup();
         reject(new Error(`${runtime.config.name}: Discord could not start the voice connection (adapter unavailable).`));
       }
@@ -390,6 +402,24 @@ async function joinBot(runtime) {
 
   stopBot(runtime);
   let pendingVoiceServerUpdate;
+  let connection;
+  const ensureNetworkingStarted = () => {
+    const handshake = runtime.voiceHandshake;
+    if (
+      connection &&
+      connection.state.status === VoiceConnectionStatus.Signalling &&
+      handshake?.voiceStateSessionReceived &&
+      handshake.voiceServerEndpointReceived
+    ) {
+      console.info(`${runtime.config.id}: both Discord voice handshake packets are available; starting voice networking.`);
+      try {
+        connection.configureNetworking();
+      } catch (error) {
+        runtime.error = `${runtime.config.name}: could not initialize Discord voice networking: ${error.message}`;
+        console.error(`${runtime.config.id}: voice networking initialization failed:`, error);
+      }
+    }
+  };
   const forwardVoiceServerUpdate = (packet, methods) => {
     runtime.voiceHandshake = {
       ...runtime.voiceHandshake,
@@ -403,7 +433,9 @@ async function joinBot(runtime) {
       console.info(`${runtime.config.id}: buffering Discord voice-server update until its voice-state update arrives.`);
       return;
     }
-    return methods.onVoiceServerUpdate(packet);
+    const result = methods.onVoiceServerUpdate(packet);
+    ensureNetworkingStarted();
+    return result;
   };
   const joinOptions = {
     channelId: channel.id,
@@ -423,7 +455,9 @@ async function joinBot(runtime) {
         if (pendingVoiceServerUpdate) {
           const serverPacket = pendingVoiceServerUpdate;
           pendingVoiceServerUpdate = null;
-          return methods.onVoiceServerUpdate(serverPacket);
+          const serverResult = methods.onVoiceServerUpdate(serverPacket);
+          ensureNetworkingStarted();
+          return serverResult;
         }
         return result;
       },
@@ -444,7 +478,7 @@ async function joinBot(runtime) {
     voiceStateUpdateAt: null,
     voiceServerUpdateAt: null
   };
-  const connection = joinVoiceChannel(joinOptions);
+  connection = joinVoiceChannel(joinOptions);
   runtime.voiceConnection = connection;
   runtime.status = "connecting";
   connection.on("stateChange", (_oldState, newState) => {
@@ -498,7 +532,10 @@ async function joinBot(runtime) {
 
 async function startBot(runtime, audio) {
   if (!audio || !fs.existsSync(audio.filePath)) throw new Error("Upload or select an audio file first.");
-  const connection = await joinBot(runtime);
+  const connection = runtime.voiceConnection;
+  if (connection?.state.status !== VoiceConnectionStatus.Ready) {
+    throw new Error(`${runtime.config.name}: not connected to voice. Click Join VC first.`);
+  }
   const channel = await runtime.client.channels.fetch(runtime.channelId);
   if (!channel?.permissionsFor(runtime.client.user)?.has("Speak")) {
     throw new Error(`${runtime.config.name}: the bot needs Speak permission in the selected channel to play audio.`);
@@ -530,10 +567,7 @@ async function startBot(runtime, audio) {
 }
 
 function stopBot(runtime) {
-  if (runtime.player) {
-    runtime.player.stop(true);
-    runtime.player = null;
-  }
+  stopPlayback(runtime);
   if (runtime.voiceConnection) {
     if (runtime.voiceConnection.state.status !== VoiceConnectionStatus.Destroyed) {
       runtime.voiceConnection.destroy();
@@ -545,6 +579,15 @@ function stopBot(runtime) {
   runtime.status = runtime.client?.isReady() ? "ready" : runtime.status;
   runtime.muted = false;
   runtime.deafened = false;
+}
+
+function stopPlayback(runtime) {
+  if (runtime.player) {
+    runtime.player.stop(true);
+    runtime.player = null;
+  }
+  runtime.playing = false;
+  runtime.currentAudio = null;
 }
 
 function setVoiceFlags(runtime, change) {
@@ -577,6 +620,8 @@ app.post("/api/control", requireAuth, async (request, response) => {
       response.status(409).json({ error: "No bot tokens are configured. Add the DISCORD_BOT_TOKEN_XX environment variables in Render first." });
       return;
     }
+  } else if (action === "stop-all") {
+    targets = [...bots.values()].filter((bot) => bot.player);
   } else {
     targets = [...bots.values()].filter((bot) => bot.voiceConnection);
   }
@@ -593,15 +638,17 @@ app.post("/api/control", requireAuth, async (request, response) => {
   const results = await Promise.all(targets.map(async (runtime) => {
     try {
       if (action === "start-all") await startBot(runtime, audio);
-      if (action === "stop-all" || action === "disconnect-all") stopBot(runtime);
+      if (action === "stop-all") stopPlayback(runtime);
+      if (action === "disconnect-all") stopBot(runtime);
       if (action === "mute-all") setVoiceFlags(runtime, { muted: true });
       if (action === "unmute-all") setVoiceFlags(runtime, { muted: false });
       if (action === "deafen-all") setVoiceFlags(runtime, { deafened: true });
       if (action === "undeafen-all") setVoiceFlags(runtime, { deafened: false });
       return { id: runtime.config.id, ok: true, bot: botSummary(runtime) };
     } catch (error) {
-      runtime.error = error.message;
-      return { id: runtime.config.id, ok: false, error: error.message, bot: botSummary(runtime) };
+      const message = explainDiscordAccessError(runtime, error);
+      runtime.error = message;
+      return { id: runtime.config.id, ok: false, error: message, bot: botSummary(runtime) };
     }
   }));
   response.json({ results });
