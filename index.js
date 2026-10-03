@@ -11,7 +11,6 @@ const {
   AudioPlayerStatus,
   createAudioPlayer,
   createAudioResource,
-  entersState,
   joinVoiceChannel,
   VoiceConnectionStatus
 } = require("@discordjs/voice");
@@ -38,6 +37,8 @@ const bots = new Map();
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const sessionLifetimeMs = 12 * 60 * 60 * 1000;
+const voiceReadyTimeoutMs = 45_000;
+const voiceSignallingRetryMs = 18_000;
 const isProduction = process.env.NODE_ENV === "production";
 const configuredChannelIds = [...new Set(config.bots.map((bot) => bot.voiceChannelId).filter(Boolean))];
 let fleetChannelId = process.env.VOICE_CHANNEL_ID || (configuredChannelIds.length === 1 ? configuredChannelIds[0] : "");
@@ -301,6 +302,44 @@ async function waitForBotReady(runtime) {
   });
 }
 
+function waitForVoiceReady(connection, runtime) {
+  if (connection.state.status === VoiceConnectionStatus.Ready) return Promise.resolve(connection);
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup();
+      const state = connection.state.status;
+      reject(new Error(
+        `${runtime.config.name}: voice connection stayed in ${state} for ${Math.round(voiceReadyTimeoutMs / 1000)} seconds.`
+      ));
+    }, voiceReadyTimeoutMs);
+
+    const cleanup = () => {
+      clearTimeout(timeout);
+      connection.removeListener("stateChange", onStateChange);
+    };
+
+    const onStateChange = (_oldState, newState) => {
+      if (newState.status === VoiceConnectionStatus.Ready) {
+        cleanup();
+        resolve(connection);
+      } else if (newState.status === VoiceConnectionStatus.Destroyed) {
+        cleanup();
+        const details = newState.closeCode
+          ? ` Discord voice WebSocket closed with code ${newState.closeCode}.`
+          : "";
+        reject(new Error(`${runtime.config.name}: Discord voice connection changed to ${newState.status}.${details}`));
+      } else if (newState.status === VoiceConnectionStatus.Disconnected && !_oldState) {
+        cleanup();
+        reject(new Error(`${runtime.config.name}: Discord could not start the voice connection (adapter unavailable).`));
+      }
+    };
+
+    connection.on("stateChange", onStateChange);
+    onStateChange(null, connection.state);
+  });
+}
+
 async function joinBot(runtime) {
   await waitForBotReady(runtime);
   if (!runtime.channelId) throw new Error(`${runtime.config.name}: set the shared voice channel ID first.`);
@@ -336,17 +375,44 @@ async function joinBot(runtime) {
   const connection = joinVoiceChannel(joinOptions);
   runtime.voiceConnection = connection;
   runtime.status = "connecting";
+  let recoveryAttempts = 0;
+  let recoveryResetTimer;
   connection.on("stateChange", (_oldState, newState) => {
     if (runtime.voiceConnection !== connection) return;
     if (newState.status === VoiceConnectionStatus.Ready) {
       runtime.status = "connected";
       runtime.error = null;
+      clearTimeout(recoveryResetTimer);
+      recoveryResetTimer = setTimeout(() => {
+        recoveryAttempts = 0;
+      }, 30_000);
+      recoveryResetTimer.unref?.();
     } else if (newState.status === VoiceConnectionStatus.Connecting || newState.status === VoiceConnectionStatus.Signalling) {
       runtime.status = "connecting";
     } else if (newState.status === VoiceConnectionStatus.Disconnected) {
       runtime.status = "disconnected";
       runtime.playing = false;
-      runtime.error = `${runtime.config.name}: Discord disconnected the voice session. Check the channel permissions and voice connection logs.`;
+      const closeCode = newState.closeCode ? ` Voice WebSocket close code: ${newState.closeCode}.` : "";
+      runtime.error = `${runtime.config.name}: Discord disconnected the voice session.${closeCode}`;
+      if (recoveryAttempts < 3) {
+        recoveryAttempts += 1;
+        const attempt = recoveryAttempts;
+        runtime.error += ` Trying to reconnect (${attempt}/3).`;
+        const recoveryTimer = setTimeout(() => {
+          if (runtime.voiceConnection !== connection || connection.state.status !== VoiceConnectionStatus.Disconnected) return;
+          const accepted = connection.rejoin({
+            channelId: channel.id,
+            selfMute: runtime.muted,
+            selfDeaf: runtime.deafened
+          });
+          if (!accepted) {
+            runtime.error = `${runtime.config.name}: Discord rejected automatic reconnect ${attempt}/3. Click Join to retry.`;
+          }
+        }, 1_000 * 2 ** (attempt - 1));
+        recoveryTimer.unref?.();
+      } else {
+        runtime.error += " Automatic reconnect limit reached. Click Join to retry.";
+      }
     }
   });
   connection.on("error", (error) => {
@@ -354,32 +420,46 @@ async function joinBot(runtime) {
     runtime.error = `Voice connection error: ${error.message}`;
     console.error(`${runtime.config.id}: voice connection error:`, error);
   });
+  const retryTimer = setTimeout(() => {
+    if (runtime.voiceConnection !== connection || connection.state.status !== VoiceConnectionStatus.Signalling) return;
+    const accepted = connection.rejoin({
+      channelId: channel.id,
+      selfMute: runtime.muted,
+      selfDeaf: runtime.deafened
+    });
+    if (!accepted) {
+      runtime.error = `${runtime.config.name}: Discord did not accept a retry for the voice handshake.`;
+    }
+  }, voiceSignallingRetryMs);
+  retryTimer.unref?.();
+
   try {
-    await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+    await waitForVoiceReady(connection, runtime);
     runtime.guildId = guild.id;
     runtime.status = "connected";
     runtime.error = null;
-
-    connection.on(VoiceConnectionStatus.Disconnected, () => {
-      if (runtime.voiceConnection === connection) {
-        runtime.status = "disconnected";
-        runtime.playing = false;
-        runtime.voiceConnection = null;
-        runtime.player = null;
-      }
-    });
     return connection;
   } catch (error) {
-    const connectionError = new Error(
-      `${runtime.config.name}: voice connection did not become ready (${connection.state.status}). ` +
-      `Verify the channel ID, View Channel/Connect permissions, Discord voice connectivity, ` +
-      `and that the bot is online. ${error.message}`
-    );
-    connection.destroy();
-    runtime.voiceConnection = null;
-    runtime.status = runtime.client?.isReady() ? "ready" : "error";
+    const stillNegotiating = connection.state.status === VoiceConnectionStatus.Signalling ||
+      connection.state.status === VoiceConnectionStatus.Connecting;
+    const connectionError = new Error(stillNegotiating
+      ? `${error.message} The connection was left active instead of being forcibly disconnected; it may still complete. ` +
+        (connection.state.status === VoiceConnectionStatus.Signalling
+          ? "Discord has not completed the voice-gateway handshake. Check that the bot remains online and try Join again."
+          : "The voice socket did not finish connecting. Check that the host allows outbound UDP traffic to Discord voice.")
+      : `${error.message} Check the bot's server access, channel permissions, and Discord voice connectivity.`);
+    if (stillNegotiating) {
+      runtime.status = "connecting";
+    } else {
+      if (connection.state.status !== VoiceConnectionStatus.Destroyed) connection.destroy();
+      clearTimeout(recoveryResetTimer);
+      runtime.voiceConnection = null;
+      runtime.status = runtime.client?.isReady() ? "ready" : "error";
+    }
     runtime.error = connectionError.message;
     throw connectionError;
+  } finally {
+    clearTimeout(retryTimer);
   }
 }
 
