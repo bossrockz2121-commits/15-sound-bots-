@@ -212,6 +212,10 @@
           <button type="button" class="button danger" id="disconnect-button">Disconnect all</button>
           <button type="button" class="button primary" id="play-button">Play</button>
           <button type="button" class="button secondary" id="stop-button">Stop</button>
+          <button type="button" class="button secondary" id="mute-button">Mute all</button>
+          <button type="button" class="button secondary" id="unmute-button">Unmute all</button>
+          <button type="button" class="button secondary" id="deafen-button">Deafen all</button>
+          <button type="button" class="button secondary" id="undeafen-button">Undeafen all</button>
           <button type="button" class="button secondary" id="refresh-button">Refresh</button>
         </div>
         <div class="divider"></div>
@@ -219,9 +223,9 @@
           <label class="field-label" for="gain-slider">Playback gain</label>
           <output class="gain-value" id="gain-value">1.00×</output>
         </div>
-        <input id="gain-slider" type="range" min="0" max="2" step="0.05" value="1" aria-label="Playback gain">
-        <div class="range-scale"><span>Mute · 0×</span><span>Standard · 1×</span><span>Maximum · 2×</span></div>
-        <p class="note">Gain is capped at 2×. Very loud playback can still damage hearing or speakers; keep your device volume moderate.</p>
+        <input id="gain-slider" type="range" min="0" max="3" step="0.05" value="1" aria-label="Playback gain">
+        <div class="range-scale"><span>Mute · 0×</span><span>Standard · 1×</span><span>Maximum · 3× (+9.5 dB)</span></div>
+        <p class="note">Gain is capped at 3×. High gain can distort audio and may damage hearing or speakers; increase gradually and keep device volume moderate.</p>
         <div class="message" id="control-message" role="status" aria-live="polite"></div>
       </div>
     </section>
@@ -394,7 +398,16 @@
     actionBusy = true;
     const button = $("#" + action + "-button");
     if (button) button.disabled = true;
-    const labels = { join: "Joining every available bot…", disconnect: "Disconnecting bots…", play: "Starting audio across the fleet…", stop: "Stopping all playback…" };
+    const labels = {
+      join: "Joining every available bot…",
+      disconnect: "Disconnecting bots…",
+      play: "Starting audio across the fleet…",
+      stop: "Stopping all playback…",
+      mute: "Muting connected bots…",
+      unmute: "Unmuting connected bots…",
+      deafen: "Deafening connected bots…",
+      undeafen: "Undeafening connected bots…"
+    };
     setMessage(labels[action] || "Working…", "");
     try {
       const suffix = action === "join" ? "?channelId=" + encodeURIComponent($("#channel-id").value.trim()) : extra;
@@ -410,7 +423,20 @@
         const failures = (payload.results || []).length - joined;
         setMessage(joined + " bot(s) joined." + (failures ? " " + failures + " could not join; see their status below." : ""), failures ? "error" : "success");
       } else {
-        setMessage(action === "disconnect" ? "All voice connections disconnected." : action === "play" ? "Playback started for connected bots." : "Playback stopped.", "success");
+        const successMessages = {
+          disconnect: "All voice connections disconnected.",
+          play: "Playback started for connected bots.",
+          stop: "Playback stopped.",
+          mute: "Connected bots muted.",
+          unmute: "Connected bots unmuted.",
+          deafen: "Connected bots deafened.",
+          undeafen: "Connected bots undeafened."
+        };
+        const failures = (payload.results || []).filter((result) => !result.ok);
+        setMessage(
+          successMessages[action] + (failures.length ? " " + failures.length + " bot(s) failed; check their permissions and status." : ""),
+          failures.length ? "error" : "success"
+        );
       }
     } catch (error) {
       setMessage("Could not reach the server. Check that the app is running.", "error");
@@ -536,6 +562,10 @@
   $("#disconnect-button").addEventListener("click", () => fleetAction("disconnect"));
   $("#play-button").addEventListener("click", () => fleetAction("play"));
   $("#stop-button").addEventListener("click", () => fleetAction("stop"));
+  $("#mute-button").addEventListener("click", () => fleetAction("mute"));
+  $("#unmute-button").addEventListener("click", () => fleetAction("unmute"));
+  $("#deafen-button").addEventListener("click", () => fleetAction("deafen"));
+  $("#undeafen-button").addEventListener("click", () => fleetAction("undeafen"));
   $("#refresh-button").addEventListener("click", refresh);
   $("#channel-id").addEventListener("keydown", (event) => {
     if (event.key === "Enter") fleetAction("join");

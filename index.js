@@ -12,6 +12,7 @@ const {
 } = require("@discordjs/voice");
 const { createPlayback } = require("./lib/playback");
 const { destroyVoiceConnection, joinBotVoiceChannel } = require("./lib/voice-connection");
+const { attachVoiceRecovery } = require("./lib/voice-recovery");
 
 dotenv.config();
 
@@ -30,7 +31,7 @@ if (ffmpegPath) {
 
 const MAX_SOUND_MB = Math.min(90, Math.max(1, Number(process.env.MAX_SOUND_MB) || 90));
 const MAX_SOUND_BYTES = MAX_SOUND_MB * 1024 * 1024;
-const MAX_PLAYBACK_GAIN = 2;
+const MAX_PLAYBACK_GAIN = 3;
 const fleetAudioDirectory = path.resolve(process.env.AUDIO_UPLOAD_DIR || path.join(projectRoot, "sounds", "fleet"));
 const AUDIO_EXTENSIONS = new Set([
   ".mp3", ".mp2", ".wav", ".ogg", ".oga", ".opus", ".m4a", ".aac",
@@ -113,7 +114,11 @@ for (const bot of config.bots) {
     connection: null,
     playback: null,
     uploadSequence: 0,
-    joining: false
+    joining: false,
+    guildId: null,
+    muted: false,
+    deafened: false,
+    recoveryPromise: null
   };
 
   if (!entry.enabled) entry.status = "disabled";
@@ -145,6 +150,8 @@ function describeBot(entry) {
     volume: entry.volume,
     loop: entry.loop,
     playing: entry.playback ? entry.playback.isPlaying() : false,
+    muted: entry.muted,
+    deafened: entry.deafened,
     error: entry.error
   };
 }
@@ -220,31 +227,17 @@ async function joinBot(entry, channelId) {
   entry.joining = true;
   entry.status = "starting";
   entry.channelName = channel.name;
+  entry.guildId = channel.guild.id;
   entry.error = null;
   connection.on("error", (error) => {
     if (entry.connection !== connection) return;
     entry.error = error.message;
     console.error(`${entry.bot.id}: voice connection error:`, error);
   });
-  connection.on(VoiceConnectionStatus.Disconnected, () => {
-    if (entry.connection !== connection) return;
-    entry.status = "reconnecting";
-    void entersState(connection, VoiceConnectionStatus.Ready, 15_000).then(() => {
-      if (entry.connection === connection) {
-        entry.status = "connected";
-        entry.playback.resume();
-      }
-    }).catch((error) => {
-      if (entry.connection !== connection) return;
-      entry.error = `Voice connection dropped: ${error.message}`;
-      entry.status = "error";
-      entry.connection = null;
-      destroyVoiceConnection(connection);
-    });
-  });
+  attachVoiceRecovery(entry, connection);
   entry.playback.attach(connection);
   try {
-    await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+    await entersState(connection, VoiceConnectionStatus.Ready, 45_000);
     entry.status = "connected";
     entry.error = null;
     console.log(`${entry.bot.id} (${client.user.tag}) connected to ${channel.name}.`);
@@ -254,6 +247,7 @@ async function joinBot(entry, channelId) {
       entry.connection = null;
       destroyVoiceConnection(connection);
       entry.channelName = null;
+      entry.guildId = null;
       entry.status = client.isReady() ? "ready" : "disabled";
     }
     throw error;
@@ -564,6 +558,7 @@ function disconnectFleet() {
       destroyVoiceConnection(connection);
     }
     entry.channelName = null;
+    entry.guildId = null;
     entry.joining = false;
     entry.status = entry.client?.isReady() ? "ready" : "disabled";
     entry.error = null;
@@ -598,6 +593,37 @@ function playFleet() {
 function stopFleet() {
   for (const entry of bots.values()) entry.playback?.stop();
   return { ok: true };
+}
+
+async function setFleetVoiceState(field, value) {
+  const results = await Promise.all([...bots.values()].map(async (entry) => {
+    if (!entry.connection || entry.status !== "connected" || !entry.guildId) {
+      return { id: entry.bot.id, ok: false, error: "Bot is not connected to voice." };
+    }
+    try {
+      const guild = entry.client.guilds.cache.get(entry.guildId);
+      const member = guild?.members.me || await guild?.members.fetch(entry.client.user.id);
+      if (!member) throw new Error("Could not find this bot in the voice channel's server.");
+      if (field === "muted") await member.voice.setMute(value, "Sound Bots fleet control");
+      else await member.voice.setDeaf(value, "Sound Bots fleet control");
+      entry[field] = value;
+      return { id: entry.bot.id, ok: true };
+    } catch (error) {
+      const permission = error.code === 50013
+        ? `Grant this bot the ${field === "muted" ? "Mute Members" : "Deafen Members"} permission.`
+        : error.message;
+      entry.error = permission;
+      return { id: entry.bot.id, ok: false, error: permission };
+    }
+  }));
+  const succeeded = results.filter((result) => result.ok).length;
+  return {
+    ok: succeeded > 0,
+    results,
+    error: succeeded
+      ? null
+      : `No bots could be ${value ? field === "muted" ? "muted" : "deafened" : field === "muted" ? "unmuted" : "undeafened"}.`
+  };
 }
 
 async function handleRequest(request, response) {
@@ -682,6 +708,13 @@ async function handleRequest(request, response) {
     }
     if (action === "stop") {
       sendJson(response, 200, { ...stopFleet(), state: fleetSnapshot() });
+      return;
+    }
+    if (["mute", "unmute", "deafen", "undeafen"].includes(action)) {
+      const field = action === "mute" || action === "unmute" ? "muted" : "deafened";
+      const value = action === "mute" || action === "deafen";
+      const result = await setFleetVoiceState(field, value);
+      sendJson(response, result.ok ? 200 : 409, { ...result, state: fleetSnapshot() });
       return;
     }
     if (action === "gain") {
