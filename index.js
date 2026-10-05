@@ -292,6 +292,15 @@ function listFleetAudio() {
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
+function selectFleetAudio(audio) {
+  selectedFleetAudio = audio;
+  for (const entry of bots.values()) {
+    entry.soundFile = audio.file;
+    entry.soundPath = audio.absolute;
+    entry.error = null;
+  }
+}
+
 function sendJson(response, statusCode, payload) {
   const body = JSON.stringify(payload);
   response.writeHead(statusCode, {
@@ -495,12 +504,12 @@ async function handleFleetUpload(request, response, url) {
     return;
   }
 
-  selectedFleetAudio = {
+  selectFleetAudio({
     file: toRelativePath(path.join("sounds", "fleet", name)),
     name,
     absolute: target,
     bytes: written
-  };
+  });
   sendJson(response, 200, {
     ok: true,
     audio: selectedFleetAudio,
@@ -678,10 +687,10 @@ async function handleRequest(request, response) {
       sendJson(response, 404, { error: "That audio file is not in the shared library." });
       return;
     }
-    selectedFleetAudio = {
+    selectFleetAudio({
       ...selected,
       absolute: path.join(fleetAudioDirectory, selected.name)
-    };
+    });
     sendJson(response, 200, { ok: true, state: fleetSnapshot() });
     return;
   }

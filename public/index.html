@@ -367,7 +367,9 @@
       name.textContent = bot.name;
       const detail = document.createElement("div");
       detail.className = "bot-detail";
-      detail.textContent = bot.error || (bot.channelName ? "In " + bot.channelName : bot.status === "disabled" ? "Token not configured" : "Ready to join");
+      const statusText = bot.error || (bot.channelName ? "In " + bot.channelName : bot.status === "disabled" ? "Token not configured" : "Ready to join");
+      const trackName = (bot.soundFile || "").split(/[\\/]/).pop();
+      detail.textContent = statusText + (trackName ? " · Track: " + trackName : "");
       details.append(name, detail);
       const status = document.createElement("span");
       status.className = "bot-state " + bot.status;

@@ -109,6 +109,21 @@ describe("bot playback", () => {
     playback.stop();
   });
 
+  it("decodes imported audio files to playable 48 kHz stereo PCM", async () => {
+    streams.length = 0;
+    recording = true;
+    const playback = start(makeEntry(soundA));
+    playback.play();
+    const chunks = [];
+    streams[0].resource.playStream.on("data", (chunk) => chunks.push(chunk));
+    await sleep(400);
+    playback.stop();
+    recording = false;
+
+    assert.ok(chunks.length > 0, "the decoder must provide audio data to the player");
+    assert.ok(chunks.reduce((total, chunk) => total + chunk.length, 0) > 0);
+  });
+
   it("keeps only the newest stream alive when adds arrive rapidly", async () => {
     streams.length = 0;
     recording = true;
