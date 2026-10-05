@@ -301,6 +301,14 @@ function selectFleetAudio(audio) {
   }
 }
 
+const savedFleetAudio = listFleetAudio()[0];
+if (savedFleetAudio) {
+  selectFleetAudio({
+    ...savedFleetAudio,
+    absolute: path.join(fleetAudioDirectory, savedFleetAudio.name)
+  });
+}
+
 function sendJson(response, statusCode, payload) {
   const body = JSON.stringify(payload);
   response.writeHead(statusCode, {
