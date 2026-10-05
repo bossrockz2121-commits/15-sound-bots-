@@ -13,6 +13,9 @@ to control the whole fleet, and play or stop shared audio from the dashboard.
 4. Copy a Discord voice channel ID into the dashboard and press **Join all**.
    Bots with configured tokens attempt to join that channel; one bot's missing
    permission or connection problem does not prevent other bots from joining.
+   Each bot uses an isolated voice-connection group, so all 15 bots can join the
+   same server/channel without sharing one connection or accumulating each other's
+   connection event listeners.
 5. Upload one or more audio files, choose a track if needed, then use **Play**
    or **Stop** to control playback across the connected bots.
 

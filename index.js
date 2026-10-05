@@ -8,10 +8,10 @@ const dotenv = require("dotenv");
 const { Client, GatewayIntentBits, ChannelType } = require("discord.js");
 const {
   entersState,
-  joinVoiceChannel,
   VoiceConnectionStatus
 } = require("@discordjs/voice");
 const { createPlayback } = require("./lib/playback");
+const { destroyVoiceConnection, joinBotVoiceChannel } = require("./lib/voice-connection");
 
 dotenv.config();
 
@@ -210,16 +210,12 @@ async function joinBot(entry, channelId) {
 
   entry.playback?.stop();
   if (entry.connection) {
-    entry.connection.destroy();
+    const previousConnection = entry.connection;
     entry.connection = null;
+    destroyVoiceConnection(previousConnection);
   }
   entry.playback = createPlayback(entry);
-  const connection = joinVoiceChannel({
-    channelId: channel.id,
-    guildId: channel.guild.id,
-    adapterCreator: channel.guild.voiceAdapterCreator,
-    selfDeaf: true
-  });
+  const connection = joinBotVoiceChannel(entry.bot.id, channel);
   entry.connection = connection;
   entry.joining = true;
   entry.status = "starting";
@@ -242,8 +238,8 @@ async function joinBot(entry, channelId) {
       if (entry.connection !== connection) return;
       entry.error = `Voice connection dropped: ${error.message}`;
       entry.status = "error";
-      connection.destroy();
       entry.connection = null;
+      destroyVoiceConnection(connection);
     });
   });
   entry.playback.attach(connection);
@@ -255,8 +251,8 @@ async function joinBot(entry, channelId) {
   } catch (error) {
     if (entry.connection === connection) {
       entry.playback.stop();
-      connection.destroy();
       entry.connection = null;
+      destroyVoiceConnection(connection);
       entry.channelName = null;
       entry.status = client.isReady() ? "ready" : "disabled";
     }
@@ -563,8 +559,9 @@ function disconnectFleet() {
   for (const entry of bots.values()) {
     entry.playback?.stop();
     if (entry.connection) {
-      entry.connection.destroy();
+      const connection = entry.connection;
       entry.connection = null;
+      destroyVoiceConnection(connection);
     }
     entry.channelName = null;
     entry.joining = false;
