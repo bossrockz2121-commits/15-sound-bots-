@@ -28,7 +28,10 @@ if (ffmpegPath) {
   process.env.PATH = `${path.dirname(ffmpegPath)}${path.delimiter}${process.env.PATH || ""}`;
 }
 
-const MAX_SOUND_BYTES = Math.max(1, Number(process.env.MAX_SOUND_MB) || 25) * 1024 * 1024;
+const MAX_SOUND_MB = Math.min(90, Math.max(1, Number(process.env.MAX_SOUND_MB) || 90));
+const MAX_SOUND_BYTES = MAX_SOUND_MB * 1024 * 1024;
+const MAX_PLAYBACK_GAIN = 2;
+const fleetAudioDirectory = path.resolve(process.env.AUDIO_UPLOAD_DIR || path.join(projectRoot, "sounds", "fleet"));
 const AUDIO_EXTENSIONS = new Set([
   ".mp3", ".mp2", ".wav", ".ogg", ".oga", ".opus", ".m4a", ".aac",
   ".flac", ".webm", ".mp4", ".mkv", ".aif", ".aiff", ".wma", ".mov"
@@ -36,6 +39,10 @@ const AUDIO_EXTENSIONS = new Set([
 const PAGE_PATH = path.join(projectRoot, "public", "index.html");
 const clients = [];
 const bots = new Map();
+let fleetChannelId = "";
+let fleetGain = 1;
+let selectedFleetAudio = null;
+let fleetUploadSequence = 0;
 
 class UploadTooLargeError extends Error {}
 
@@ -99,13 +106,14 @@ for (const bot of config.bots) {
     libraryPath: path.join(projectRoot, "sounds", bot.id),
     volume: bot.volume ?? config.defaults?.volume ?? 1,
     loop: Boolean(bot.loop ?? config.defaults?.loop ?? false),
-    status: "disabled",
+    status: process.env[bot.tokenEnv] ? "starting" : "disabled",
     channelName: null,
     error: null,
     client: null,
     connection: null,
     playback: null,
-    uploadSequence: 0
+    uploadSequence: 0,
+    joining: false
   };
 
   if (!entry.enabled) entry.status = "disabled";
@@ -127,7 +135,7 @@ function describeBot(entry) {
   return {
     id: entry.bot.id,
     name: entry.bot.name || entry.bot.id,
-    enabled: entry.enabled,
+    enabled: Boolean(entry.client && entry.client.isReady()),
     status: entry.status,
     channelName: entry.channelName,
     soundFile: entry.soundFile,
@@ -166,47 +174,20 @@ function validateEnvironment(entry) {
   if (!bot.tokenEnv || !process.env[bot.tokenEnv]) {
     throw new Error(`${bot.id}: missing token in environment variable ${bot.tokenEnv || "(unset)"}.`);
   }
-  if (!bot.guildId || !bot.voiceChannelId) {
-    throw new Error(`${bot.id}: set guildId and voiceChannelId in bots.config.json.`);
-  }
-  if (!Number.isFinite(entry.volume) || entry.volume < 0 || entry.volume > 1) {
-    throw new Error(`${bot.id}: volume must be a number between 0 and 1; received ${entry.volume}.`);
+  if (!Number.isFinite(entry.volume) || entry.volume < 0 || entry.volume > MAX_PLAYBACK_GAIN) {
+    throw new Error(`${bot.id}: volume must be between 0 and ${MAX_PLAYBACK_GAIN}; received ${entry.volume}.`);
   }
 }
 
-async function joinAndPlay(entry) {
-  const { bot } = entry;
+async function joinBot(entry, channelId) {
   const client = entry.client;
-
-  let guild;
-  try {
-    guild = await client.guilds.fetch(bot.guildId);
-  } catch (error) {
-    if (error.code === 50001 || error.code === 10004) {
-      throw new Error(
-        `${bot.id}: this bot cannot access server ${bot.guildId}. ` +
-        "Invite this bot to that server and verify the configured guildId."
-      );
-    }
-    throw error;
+  if (!client?.isReady()) {
+    throw new Error(`${entry.bot.id}: Discord bot is not online or its token is missing.`);
   }
-
-  let channel;
-  try {
-    channel = await guild.channels.fetch(bot.voiceChannelId);
-  } catch (error) {
-    if (error.code === 50001 || error.code === 10003) {
-      throw new Error(
-        `${bot.id}: cannot access voice channel ${bot.voiceChannelId}. ` +
-        "Invite this bot to the server and grant View Channel, Connect, and Speak " +
-        "on the channel or its category."
-      );
-    }
-    throw error;
-  }
-
+  if (entry.joining) throw new Error(`${entry.bot.id}: a voice-channel connection is already being established.`);
+  const channel = await client.channels.fetch(channelId);
   if (!channel || ![ChannelType.GuildVoice, ChannelType.GuildStageVoice].includes(channel.type)) {
-    throw new Error(`Configured channel ${bot.voiceChannelId} is not a voice or stage channel.`);
+    throw new Error(`${entry.bot.id}: channel ${channelId} is not an accessible voice channel.`);
   }
 
   const permissions = channel.permissionsFor(client.user);
@@ -216,122 +197,85 @@ async function joinAndPlay(entry) {
     : requiredPermissions;
   if (missingPermissions.length > 0) {
     throw new Error(
-      `${bot.id}: missing ${missingPermissions.join(", ")} permission(s) for ` +
+      `${entry.bot.id}: missing ${missingPermissions.join(", ")} permission(s) for ` +
       `${channel.name} (${channel.id}). Grant them to this bot on the channel or category.`
     );
   }
 
-  entry.channelName = channel.name;
-  entry.playback = createPlayback(entry);
-
-  let reconnecting = false;
-
-  const connect = async () => {
-    const connection = joinVoiceChannel({
-      channelId: channel.id,
-      guildId: guild.id,
-      adapterCreator: guild.voiceAdapterCreator,
-      selfDeaf: true
-    });
-
-    entry.connection = connection;
-    connection.on(VoiceConnectionStatus.Disconnected, () => {
-      if (entry.connection !== connection) return;
-      entry.status = "reconnecting";
-      console.error(`${bot.id}: voice connection dropped; attempting to reconnect.`);
-      recover(connection);
-    });
-    connection.on("error", (error) => {
-      console.error(`${bot.id}: voice connection error:`, error);
-    });
-
-    entry.playback.attach(connection);
-    await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+  if (entry.connection && entry.connection.joinConfig.channelId === channel.id &&
+      entry.connection.state.status === VoiceConnectionStatus.Ready) {
     entry.status = "connected";
-    return connection;
-  };
-
-  const recover = (lostConnection) => {
-    if (reconnecting) return;
-    reconnecting = true;
-
-    void (async () => {
-      try {
-        try {
-          await entersState(lostConnection, VoiceConnectionStatus.Ready, 15_000);
-        } catch (error) {
-          console.error(
-            `${bot.id}: existing voice connection did not recover; retrying with a new connection:`,
-            error
-          );
-          if (entry.connection === lostConnection) {
-            lostConnection.destroy();
-            entry.connection = null;
-          }
-
-          while (entry.client?.isReady()) {
-            await new Promise((resolve) => setTimeout(resolve, 5_000));
-            try {
-              await connect();
-              entry.playback.resume();
-              console.log(`${bot.id} reconnected to ${channel.name}.`);
-              return;
-            } catch (reconnectError) {
-              if (entry.connection) {
-                entry.connection.destroy();
-                entry.connection = null;
-              }
-              console.error(`${bot.id}: reconnect attempt failed:`, reconnectError);
-            }
-          }
-          return;
-        }
-
-        if (entry.client?.isReady() && entry.connection === lostConnection) {
-          entry.status = "connected";
-          entry.playback.attach(lostConnection);
-          entry.playback.resume();
-        }
-      } finally {
-        reconnecting = false;
-      }
-    })();
-  };
-
-  await connect();
-
-  if (fs.existsSync(entry.soundPath)) {
-    entry.playback.play();
-  } else {
-    entry.error = `Add an audio file for this bot from the web page (${entry.soundFile}).`;
-    console.warn(`${bot.id}: ${entry.error}`);
+    return;
   }
 
-  console.log(`${bot.id} (${client.user.tag}) connected to ${channel.name}.`);
+  entry.playback?.stop();
+  if (entry.connection) {
+    entry.connection.destroy();
+    entry.connection = null;
+  }
+  entry.playback = createPlayback(entry);
+  const connection = joinVoiceChannel({
+    channelId: channel.id,
+    guildId: channel.guild.id,
+    adapterCreator: channel.guild.voiceAdapterCreator,
+    selfDeaf: true
+  });
+  entry.connection = connection;
+  entry.joining = true;
+  entry.status = "starting";
+  entry.channelName = channel.name;
+  entry.error = null;
+  connection.on("error", (error) => {
+    if (entry.connection !== connection) return;
+    entry.error = error.message;
+    console.error(`${entry.bot.id}: voice connection error:`, error);
+  });
+  connection.on(VoiceConnectionStatus.Disconnected, () => {
+    if (entry.connection !== connection) return;
+    entry.status = "reconnecting";
+    void entersState(connection, VoiceConnectionStatus.Ready, 15_000).then(() => {
+      if (entry.connection === connection) {
+        entry.status = "connected";
+        entry.playback.resume();
+      }
+    }).catch((error) => {
+      if (entry.connection !== connection) return;
+      entry.error = `Voice connection dropped: ${error.message}`;
+      entry.status = "error";
+      connection.destroy();
+      entry.connection = null;
+    });
+  });
+  entry.playback.attach(connection);
+  try {
+    await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+    entry.status = "connected";
+    entry.error = null;
+    console.log(`${entry.bot.id} (${client.user.tag}) connected to ${channel.name}.`);
+  } catch (error) {
+    if (entry.connection === connection) {
+      entry.playback.stop();
+      connection.destroy();
+      entry.connection = null;
+      entry.channelName = null;
+      entry.status = client.isReady() ? "ready" : "disabled";
+    }
+    throw error;
+  } finally {
+    entry.joining = false;
+  }
 }
 
 async function startBot(entry) {
   const { bot } = entry;
-  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+  validateEnvironment(entry);
+  const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
   entry.client = client;
   clients.push(client);
   entry.status = "starting";
-
   client.once("ready", () => {
-    void joinAndPlay(entry).catch((error) => {
-      entry.status = "error";
-      entry.error = error.message;
-      console.error(`${bot.id} failed to join/play:`, error);
-      if (entry.connection) {
-        try {
-          entry.connection.destroy();
-        } catch (destroyError) {
-          console.error(`${bot.id}: could not destroy the voice connection:`, destroyError);
-        }
-        entry.connection = null;
-      }
-      entry.playback?.stop();
-    });
+    if (!entry.connection) entry.status = "ready";
+    entry.error = null;
   });
 
   client.on("error", (error) => {
@@ -341,6 +285,21 @@ async function startBot(entry) {
   });
 
   await client.login(process.env[bot.tokenEnv]);
+}
+
+function listFleetAudio() {
+  if (!fs.existsSync(fleetAudioDirectory)) return [];
+  return fs.readdirSync(fleetAudioDirectory)
+    .filter((name) => AUDIO_EXTENSIONS.has(path.extname(name).toLowerCase()))
+    .map((name) => {
+      const absolute = path.join(fleetAudioDirectory, name);
+      const stats = fs.statSync(absolute);
+      return stats.isFile()
+        ? { file: toRelativePath(path.join("sounds", "fleet", name)), name, bytes: stats.size }
+        : null;
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function sendJson(response, statusCode, payload) {
@@ -473,6 +432,177 @@ async function handleSoundUpload(entry, request, response, url) {
   sendJson(response, 200, { ok: true, played, file: target.relative, bot: describeBot(entry) });
 }
 
+async function handleFleetUpload(request, response, url) {
+  const declaredLength = Number(request.headers["content-length"] || 0);
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_SOUND_BYTES) {
+    request.resume();
+    sendJson(response, 413, { error: `Audio file is larger than ${MAX_SOUND_MB} MB.` });
+    return;
+  }
+
+  const uploadedName = (url.searchParams.get("name") || "").trim();
+  const extension = path.extname(uploadedName).toLowerCase();
+  if (!AUDIO_EXTENSIONS.has(extension)) {
+    sendJson(response, 415, {
+      error: `Unsupported audio type "${extension || "(missing)"}". Use an accepted audio format.`
+    });
+    request.resume();
+    return;
+  }
+
+  const safeName = path.basename(uploadedName)
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
+    .replace(/[. ]+$/g, "")
+    .trim();
+  const baseName = path.basename(safeName, path.extname(safeName)) || "audio";
+  const name = `${baseName}${extension}`;
+  const target = path.join(fleetAudioDirectory, name);
+  const tempPath = path.join(fleetAudioDirectory, `.${name}.${process.pid}.${++fleetUploadSequence}.part`);
+  await fsp.mkdir(fleetAudioDirectory, { recursive: true });
+
+  let written = 0;
+  try {
+    await pipeline(
+      request,
+      new Transform({
+        transform(chunk, encoding, callback) {
+          written += chunk.length;
+          if (written > MAX_SOUND_BYTES) {
+            callback(new UploadTooLargeError());
+            return;
+          }
+          callback(null, chunk);
+        }
+      }),
+      fs.createWriteStream(tempPath)
+    );
+  } catch (error) {
+    await fsp.rm(tempPath, { force: true }).catch(() => {});
+    if (error instanceof UploadTooLargeError) {
+      sendJson(response, 413, { error: `Audio file is larger than ${MAX_SOUND_MB} MB.` });
+      return;
+    }
+    sendJson(response, 400, { error: `Upload failed: ${error.message}` });
+    return;
+  }
+
+  if (written === 0) {
+    await fsp.rm(tempPath, { force: true }).catch(() => {});
+    sendJson(response, 400, { error: "The uploaded file was empty." });
+    return;
+  }
+
+  try {
+    if (selectedFleetAudio?.absolute === target) {
+      for (const entry of bots.values()) {
+        if (entry.playback?.isPlaying() && entry.soundPath === target) entry.playback.stop();
+      }
+    }
+    await replaceFile(tempPath, target);
+  } catch (error) {
+    await fsp.rm(tempPath, { force: true }).catch(() => {});
+    sendJson(response, 500, { error: `Could not save the audio file: ${error.message}` });
+    return;
+  }
+
+  selectedFleetAudio = {
+    file: toRelativePath(path.join("sounds", "fleet", name)),
+    name,
+    absolute: target,
+    bytes: written
+  };
+  sendJson(response, 200, {
+    ok: true,
+    audio: selectedFleetAudio,
+    sounds: listFleetAudio(),
+    message: `${name} added. Press Play to broadcast it to connected bots.`
+  });
+}
+
+function fleetSnapshot() {
+  return {
+    channelId: fleetChannelId,
+    gain: fleetGain,
+    maxUploadMb: MAX_SOUND_MB,
+    maxGain: MAX_PLAYBACK_GAIN,
+    selectedAudio: selectedFleetAudio
+      ? { file: selectedFleetAudio.file, name: selectedFleetAudio.name, bytes: selectedFleetAudio.bytes }
+      : null,
+    sounds: listFleetAudio(),
+    bots: [...bots.values()].map(describeBot)
+  };
+}
+
+async function joinFleet(channelId) {
+  if (!/^\d{5,25}$/.test(channelId)) {
+    return { ok: false, error: "Enter a valid Discord voice channel ID." };
+  }
+  fleetChannelId = channelId;
+  const results = await Promise.all([...bots.values()].map(async (entry) => {
+    try {
+      await joinBot(entry, channelId);
+      return { id: entry.bot.id, ok: true };
+    } catch (error) {
+      entry.error = error.message;
+      entry.status = entry.connection?.state.status === VoiceConnectionStatus.Ready
+        ? "connected"
+        : entry.client?.isReady() ? "ready" : "disabled";
+      console.error(`${entry.bot.id} could not join ${channelId}:`, error.message);
+      return { id: entry.bot.id, ok: false, error: error.message };
+    }
+  }));
+  const joined = results.filter((result) => result.ok).length;
+  return {
+    ok: joined > 0,
+    results,
+    error: joined ? null : "No bots joined. Check that tokens are configured and each bot can access the selected channel."
+  };
+}
+
+function disconnectFleet() {
+  for (const entry of bots.values()) {
+    entry.playback?.stop();
+    if (entry.connection) {
+      entry.connection.destroy();
+      entry.connection = null;
+    }
+    entry.channelName = null;
+    entry.joining = false;
+    entry.status = entry.client?.isReady() ? "ready" : "disabled";
+    entry.error = null;
+  }
+  return { ok: true };
+}
+
+function playFleet() {
+  if (!selectedFleetAudio || !fs.existsSync(selectedFleetAudio.absolute)) {
+    return { ok: false, error: "Upload an audio file before pressing Play." };
+  }
+  const results = [];
+  for (const entry of bots.values()) {
+    if (!entry.connection || entry.status !== "connected" || !entry.playback) {
+      results.push({ id: entry.bot.id, ok: false, error: "Bot is not connected to voice." });
+      continue;
+    }
+    entry.soundFile = selectedFleetAudio.file;
+    entry.soundPath = selectedFleetAudio.absolute;
+    entry.volume = fleetGain;
+    const ok = entry.playback.play();
+    results.push({ id: entry.bot.id, ok, error: ok ? null : entry.error || "Could not start playback." });
+  }
+  const playing = results.filter((result) => result.ok).length;
+  return {
+    ok: playing > 0,
+    results,
+    error: playing ? null : "No connected bots could start playback."
+  };
+}
+
+function stopFleet() {
+  for (const entry of bots.values()) entry.playback?.stop();
+  return { ok: true };
+}
+
 async function handleRequest(request, response) {
   const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
   const { pathname } = url;
@@ -494,7 +624,7 @@ async function handleRequest(request, response) {
     sendJson(response, 200, {
       status: "ok",
       configuredBots: bots.size,
-      enabledBots: [...bots.values()].filter((entry) => entry.enabled).length,
+      enabledBots: [...bots.values()].filter((entry) => entry.client?.isReady()).length,
       bots: Object.fromEntries([...bots].map(([id, entry]) => [id, entry.status]))
     });
     return;
@@ -506,6 +636,72 @@ async function handleRequest(request, response) {
       maxUploadMb: Math.round(MAX_SOUND_BYTES / (1024 * 1024)),
       bots: [...bots.values()].map(describeBot)
     });
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/state") {
+    sendJson(response, 200, fleetSnapshot());
+    return;
+  }
+
+  if (pathname === "/api/audio" && request.method === "POST") {
+    await handleFleetUpload(request, response, url);
+    return;
+  }
+
+  if (pathname === "/api/audio/select" && request.method === "POST") {
+    const selected = listFleetAudio().find((sound) => sound.file === url.searchParams.get("file"));
+    if (!selected) {
+      sendJson(response, 404, { error: "That audio file is not in the shared library." });
+      return;
+    }
+    selectedFleetAudio = {
+      ...selected,
+      absolute: path.join(fleetAudioDirectory, selected.name)
+    };
+    sendJson(response, 200, { ok: true, state: fleetSnapshot() });
+    return;
+  }
+
+  if (pathname.startsWith("/api/fleet/")) {
+    if (request.method !== "POST") {
+      sendJson(response, 405, { error: "Use POST for fleet controls." });
+      return;
+    }
+    const action = pathname.slice("/api/fleet/".length);
+    if (action === "join") {
+      const result = await joinFleet(url.searchParams.get("channelId") || "");
+      sendJson(response, result.ok ? 200 : 409, { ...result, state: fleetSnapshot() });
+      return;
+    }
+    if (action === "disconnect") {
+      sendJson(response, 200, { ...disconnectFleet(), state: fleetSnapshot() });
+      return;
+    }
+    if (action === "play") {
+      const result = playFleet();
+      sendJson(response, result.ok ? 200 : 409, { ...result, state: fleetSnapshot() });
+      return;
+    }
+    if (action === "stop") {
+      sendJson(response, 200, { ...stopFleet(), state: fleetSnapshot() });
+      return;
+    }
+    if (action === "gain") {
+      const value = Number(url.searchParams.get("value"));
+      if (!Number.isFinite(value) || value < 0 || value > MAX_PLAYBACK_GAIN) {
+        sendJson(response, 400, { error: `Gain must be between 0× and ${MAX_PLAYBACK_GAIN}×.` });
+        return;
+      }
+      fleetGain = value;
+      for (const entry of bots.values()) {
+        entry.volume = value;
+        entry.playback?.setVolume(value);
+      }
+      sendJson(response, 200, { ok: true, gain: fleetGain, state: fleetSnapshot() });
+      return;
+    }
+    sendJson(response, 404, { error: "Unknown fleet control." });
     return;
   }
 
@@ -602,34 +798,29 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 async function main() {
+  const firstAudio = listFleetAudio()[0];
+  if (firstAudio) {
+    selectedFleetAudio = {
+      ...firstAudio,
+      absolute: path.join(fleetAudioDirectory, firstAudio.name)
+    };
+  }
   const server = startHealthServer();
-  const enabled = [...bots.values()].filter((entry) => entry.enabled);
-
-  if (enabled.length === 0) {
-    console.warn(
-      "No bots are enabled. Set enabled: true for each bot you want to start; " +
-      "the web page stays available so you can add audio files."
-    );
+  const configured = [...bots.values()].filter((entry) => entry.bot.tokenEnv && process.env[entry.bot.tokenEnv]);
+  if (configured.length === 0) {
+    console.warn("No bot tokens are configured. Add Discord tokens to .env to use fleet controls.");
     return;
   }
 
-  try {
-    for (const entry of enabled) validateEnvironment(entry);
-  } catch (error) {
-    console.error("Could not start configured bots:", error);
-    server.close(() => process.exit(1));
-    return;
-  }
-
-  await Promise.allSettled(
-    enabled.map((entry) =>
-      startBot(entry).catch((error) => {
-        entry.status = "error";
-        entry.error = error.message;
-        console.error(`${entry.bot.id} could not start:`, error);
-      })
-    )
-  );
+  await Promise.all(configured.map(async (entry) => {
+    try {
+      await startBot(entry);
+    } catch (error) {
+      entry.status = "error";
+      entry.error = error.message;
+      console.error(`${entry.bot.id} could not log in:`, error);
+    }
+  }));
 }
 
 main().catch((error) => {

@@ -3,118 +3,277 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sound bots</title>
+<meta name="theme-color" content="#080d18">
+<title>Sound Bots · Fleet Control</title>
 <style>
   :root {
-    --bg: #10131a;
-    --card: #171c26;
-    --card-hover: #1c2230;
-    --line: #262d3d;
-    --text: #e8ecf4;
-    --muted: #8e99ad;
-    --accent: #5865f2;
-    --accent-strong: #4752c4;
-    --ok: #3ba55d;
-    --warn: #e0a13c;
-    --bad: #e05a6b;
+    color-scheme: dark;
+    --bg: #080d18;
+    --panel: #0e1728;
+    --panel-raised: #121f34;
+    --line: #1d3150;
+    --text: #eff6ff;
+    --muted: #8ca2bf;
+    --blue: #3b82f6;
+    --cyan: #45d5ff;
+    --green: #37d99a;
+    --amber: #f6bd60;
+    --red: #ff718b;
+    --radius: 18px;
   }
   * { box-sizing: border-box; }
   body {
+    min-height: 100vh;
     margin: 0;
-    padding: 24px 16px 64px;
-    background: radial-gradient(1200px 600px at 50% -200px, #1d2436, var(--bg));
+    background:
+      radial-gradient(ellipse at 78% -16%, rgba(31, 103, 222, .24), transparent 48%),
+      radial-gradient(ellipse at -12% 45%, rgba(17, 83, 145, .12), transparent 42%),
+      var(--bg);
     color: var(--text);
-    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font: 15px/1.55 Inter, "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
+    letter-spacing: .01em;
   }
-  header, main { max-width: 980px; margin: 0 auto; }
-  h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -0.02em; }
-  .sub { margin: 0 0 14px; color: var(--muted); }
-  .summary {
-    display: flex; flex-wrap: wrap; gap: 8px;
-    margin-bottom: 20px; font-size: 13px; color: var(--muted);
+  button, input { font: inherit; }
+  button { color: inherit; }
+  .shell { width: min(1120px, calc(100% - 36px)); margin: 0 auto; padding: 38px 0 64px; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 34px; }
+  .brand { display: flex; align-items: center; gap: 13px; }
+  .brand-mark {
+    display: grid; width: 44px; height: 44px; place-items: center; border-radius: 15px;
+    color: #fff; background: linear-gradient(145deg, #3478f6, #1e49b4);
+    box-shadow: 0 8px 28px rgba(40, 106, 232, .28);
   }
-  .summary span {
-    background: var(--card); border: 1px solid var(--line);
-    border-radius: 999px; padding: 4px 12px;
+  .brand-mark svg { width: 22px; height: 22px; }
+  .brand-name { font-size: 17px; font-weight: 750; letter-spacing: -.03em; }
+  .brand-caption { color: var(--muted); font-size: 12px; }
+  .service-state, .stat {
+    display: inline-flex; align-items: center; gap: 8px; padding: 7px 11px;
+    border: 1px solid var(--line); border-radius: 999px; color: var(--muted);
+    background: rgba(14, 23, 40, .72); font-size: 12px;
   }
-  .bots { display: grid; gap: 12px; }
+  .dot { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: #71839c; }
+  .dot.live { background: var(--green); box-shadow: 0 0 12px rgba(55, 217, 154, .65); }
+  .dot.warn { background: var(--amber); }
+  h1 { margin: 0; font-size: clamp(28px, 4vw, 39px); line-height: 1.12; letter-spacing: -.055em; }
+  .intro { max-width: 640px; margin: 10px 0 23px; color: var(--muted); }
+  .stats { display: flex; flex-wrap: wrap; gap: 9px; margin-bottom: 25px; }
+  .stat strong { color: var(--text); font-weight: 700; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(300px, .92fr); gap: 17px; align-items: start; }
+  .panel {
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: linear-gradient(155deg, rgba(17, 30, 51, .97), rgba(11, 19, 33, .98));
+    box-shadow: 0 18px 60px rgba(0, 0, 0, .16);
+  }
+  .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 21px 0; }
+  .eyebrow { color: var(--cyan); font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+  h2 { margin: 3px 0 0; font-size: 18px; letter-spacing: -.025em; }
+  .panel-body { padding: 18px 21px 21px; }
+  .field-label { display: block; margin-bottom: 7px; color: #c8d8ee; font-size: 12px; font-weight: 700; }
+  .channel-row { display: flex; gap: 9px; }
+  .text-input {
+    width: 100%; min-width: 0; border: 1px solid #29436a; border-radius: 11px;
+    padding: 11px 13px; outline: none; color: var(--text); background: #081222;
+    transition: border-color .16s, box-shadow .16s;
+  }
+  .text-input::placeholder { color: #647a98; }
+  .text-input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(59, 130, 246, .17); }
+  .button {
+    min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 9px 14px; border: 1px solid #29436a; border-radius: 11px; cursor: pointer;
+    background: #13223a; font-size: 12px; font-weight: 750; white-space: nowrap;
+    transition: transform .14s, background .14s, border-color .14s, opacity .14s;
+  }
+  .button:hover:not(:disabled) { transform: translateY(-1px); border-color: #4778bf; background: #192d4a; }
+  .button:disabled { cursor: not-allowed; opacity: .48; }
+  .button.primary { border-color: #397ef0; background: linear-gradient(135deg, #3d86ff, #2866df); box-shadow: 0 7px 20px rgba(48, 112, 234, .22); }
+  .button.primary:hover:not(:disabled) { border-color: #70a7ff; background: linear-gradient(135deg, #5595ff, #3477f2); }
+  .button.danger { color: #ffd9e0; border-color: rgba(255, 113, 139, .31); background: rgba(127, 38, 60, .19); }
+  .button.danger:hover:not(:disabled) { border-color: rgba(255, 113, 139, .7); background: rgba(127, 38, 60, .36); }
+  .button.secondary { background: #0d1a2c; }
+  .control-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+  .control-grid .button { padding-inline: 8px; }
+  .divider { height: 1px; margin: 19px 0; background: linear-gradient(90deg, transparent, var(--line), transparent); }
+  .gain-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  .gain-value { color: var(--cyan); font-variant-numeric: tabular-nums; font-weight: 800; }
+  input[type="range"] { width: 100%; accent-color: var(--blue); }
+  .range-scale { display: flex; justify-content: space-between; color: #7188a7; font-size: 10px; }
+  .note { margin: 8px 0 0; color: var(--muted); font-size: 11px; }
+  .selected-track {
+    display: flex; align-items: center; min-height: 52px; gap: 12px; margin-bottom: 13px;
+    padding: 10px 12px; border: 1px solid #203755; border-radius: 12px; background: rgba(5, 14, 27, .5);
+  }
+  .track-icon { display: grid; width: 34px; height: 34px; flex: 0 0 34px; place-items: center; border-radius: 10px; color: var(--cyan); background: rgba(45, 147, 219, .15); }
+  .track-icon svg { width: 18px; height: 18px; }
+  .track-info { min-width: 0; flex: 1; }
+  .track-name { overflow: hidden; color: #e9f3ff; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+  .track-meta { color: var(--muted); font-size: 10px; }
+  .upload-zone {
+    display: grid; min-height: 130px; place-items: center; padding: 17px;
+    border: 1px dashed #31527e; border-radius: 14px; text-align: center; background: rgba(5, 14, 27, .46);
+    transition: border-color .15s, background .15s;
+  }
+  .upload-zone.drag { border-color: var(--cyan); background: rgba(21, 76, 119, .23); }
+  .upload-zone.busy { border-style: solid; border-color: #347df0; }
+  .upload-icon { margin: 0 auto 5px; color: #65baff; }
+  .upload-icon svg { width: 23px; height: 23px; }
+  .upload-copy { color: #d8e6f8; font-size: 12px; font-weight: 700; }
+  .upload-sub { margin-top: 3px; color: var(--muted); font-size: 10px; }
+  .file-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; clip-path: inset(50%); }
+  .upload-button { margin-top: 11px; min-height: 36px; padding: 7px 12px; }
+  .progress-wrap { display: none; margin-top: 12px; }
+  .progress-wrap.on { display: block; }
+  .progress-copy { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 5px; color: var(--muted); font-size: 10px; }
+  .progress { height: 6px; overflow: hidden; border-radius: 20px; background: #1c2a40; }
+  .progress i { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--blue), var(--cyan)); transition: width .12s; }
+  .library-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 18px 0 8px; }
+  .library-head strong { font-size: 11px; }
+  .library-head span { color: var(--muted); font-size: 10px; }
+  .library { display: grid; max-height: 225px; gap: 6px; overflow-y: auto; }
+  .track-row {
+    display: flex; width: 100%; min-width: 0; align-items: center; gap: 9px; padding: 8px 10px;
+    border: 1px solid transparent; border-radius: 10px; cursor: pointer; text-align: left; background: rgba(4, 12, 23, .38);
+  }
+  .track-row:hover { border-color: #29466d; background: #102039; }
+  .track-row.active { border-color: rgba(63, 145, 255, .55); background: rgba(34, 91, 161, .17); }
+  .track-row .track-icon { width: 29px; height: 29px; flex-basis: 29px; }
+  .track-row .track-icon svg { width: 15px; height: 15px; }
+  .track-row .track-info { text-align: left; }
+  .track-row .track-name { font-size: 11px; }
+  .track-row .track-meta { font-size: 9px; }
+  .empty-library { padding: 13px 8px; color: var(--muted); font-size: 11px; text-align: center; }
+  .fleet-head { align-items: center; }
+  .bot-count { padding: 5px 9px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 10px; }
+  .bots { display: grid; gap: 7px; padding: 16px 19px 19px; }
   .bot {
-    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
-    padding: 14px 16px; transition: border-color .15s, background .15s;
+    display: flex; min-width: 0; align-items: center; gap: 11px; padding: 10px 11px;
+    border: 1px solid rgba(36, 56, 82, .76); border-radius: 12px; background: rgba(5, 13, 25, .44);
   }
-  .bot.drag { border-color: var(--accent); background: var(--card-hover); }
-  .bot.uploading { border-color: var(--accent); }
-  .bot-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .bot-name { font-weight: 600; }
-  .bot-id { color: var(--muted); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .pill {
-    font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
-    padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted);
+  .bot-status { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: #66788e; }
+  .bot-status.connected { background: var(--green); box-shadow: 0 0 10px rgba(55, 217, 154, .43); }
+  .bot-status.starting, .bot-status.reconnecting { background: var(--amber); }
+  .bot-status.error { background: var(--red); }
+  .bot-main { min-width: 0; flex: 1; }
+  .bot-name { overflow: hidden; font-size: 11px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+  .bot-detail { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+  .bot-state { color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; }
+  .bot-state.connected { color: var(--green); }
+  .bot-state.error { color: var(--red); }
+  .message { min-height: 20px; margin-top: 12px; color: var(--muted); font-size: 11px; }
+  .message.error { color: var(--red); }
+  .message.success { color: var(--green); }
+  .footer { margin-top: 20px; color: #6f839e; font-size: 10px; text-align: center; }
+  @media (max-width: 760px) {
+    .shell { width: min(100% - 26px, 560px); padding-top: 23px; }
+    .topbar { margin-bottom: 27px; }
+    .layout { grid-template-columns: 1fr; }
   }
-  .pill.connected { color: var(--ok); border-color: rgba(59,165,93,.45); }
-  .pill.reconnecting, .pill.starting { color: var(--warn); border-color: rgba(224,161,60,.45); }
-  .pill.error { color: var(--bad); border-color: rgba(224,90,107,.45); }
-  .pill.playing { color: var(--accent); border-color: rgba(88,101,242,.6); }
-  .sound { margin: 10px 0 12px; font-size: 13px; color: var(--muted); }
-  .sound code { color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .library { display: grid; gap: 6px; margin: 12px 0; }
-  .library-title { color: var(--muted); font-size: 12px; font-weight: 600; }
-  .sound-choice { width: 100%; display: flex; justify-content: space-between; gap: 12px; text-align: left; }
-  .sound-choice.active { border-color: var(--accent); }
-  .sound-choice small { color: var(--muted); white-space: nowrap; }
-  .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .btn {
-    appearance: none; border: 1px solid var(--line); background: #1f2532; color: var(--text);
-    border-radius: 9px; padding: 8px 14px; font: inherit; font-weight: 600; font-size: 13px; cursor: pointer;
-    transition: background .15s, border-color .15s, opacity .15s;
+  @media (max-width: 440px) {
+    .channel-row { align-items: stretch; flex-direction: column; }
+    .channel-row .button { width: 100%; }
+    .control-grid { grid-template-columns: repeat(2, 1fr); }
+    .panel-head, .panel-body { padding-right: 15px; padding-left: 15px; }
+    .bots { padding-right: 13px; padding-left: 13px; }
   }
-  .btn:hover:not(:disabled) { background: #262e3f; }
-  .btn:disabled { opacity: .5; cursor: default; }
-  .btn.primary { background: var(--accent); border-color: var(--accent); }
-  .btn.primary:hover:not(:disabled) { background: var(--accent-strong); }
-  .btn input { display: none; }
-  .progress {
-    position: relative; height: 6px; margin-top: 12px; border-radius: 999px;
-    background: #232a39; overflow: hidden; display: none;
-  }
-  .progress.on { display: block; }
-  .progress > i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--accent); transition: width .12s linear; }
-  .message { margin-top: 10px; font-size: 13px; min-height: 19px; color: var(--muted); }
-  .message.ok { color: var(--ok); }
-  .message.bad { color: var(--bad); }
-  .hint { margin-top: 28px; font-size: 13px; color: var(--muted); }
-  a { color: var(--accent); }
 </style>
 </head>
 <body>
-<header>
-  <h1>Sound bots</h1>
-  <p class="sub">Add one or more audio files to each bot’s library, then select a sound to play. Each bot plays one sound at a time.</p>
-  <div class="summary" id="summary"><span>Loading…</span></div>
-</header>
-<main>
-  <div class="bots" id="bots"></div>
-  <p class="hint">
-    Drop files anywhere on a bot card, or press <strong>Add audio files</strong>. Files upload in parallel.
-    If a bot shows
-    <em>disabled</em>, set <code>enabled: true</code> in bots.config.json and restart to hear it in Discord.
-    Health check: <a href="/health">/health</a>.
-  </p>
+<main class="shell">
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 13V11M8 17V7M12 21V3M16 16V8M20 13v-2" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+      </div>
+      <div><div class="brand-name">SOUNDBOTS</div><div class="brand-caption">15 bot fleet control</div></div>
+    </div>
+    <div class="service-state"><span class="dot" id="service-dot"></span><span id="service-label">Connecting…</span></div>
+  </div>
+
+  <h1>One sound. Every bot.</h1>
+  <p class="intro">Set a voice channel, bring your bot fleet online, and broadcast audio together from one clean control room.</p>
+  <div class="stats" id="stats">
+    <span class="stat"><span class="dot" id="online-dot"></span><strong id="online-count">0 / 15</strong> connected</span>
+    <span class="stat"><span class="dot" id="playing-dot"></span><strong id="playing-count">0</strong> playing</span>
+    <span class="stat"><strong id="audio-count">0</strong> audio tracks</span>
+  </div>
+
+  <div class="layout">
+    <section class="panel">
+      <div class="panel-head">
+        <div><div class="eyebrow">Fleet console</div><h2>Voice &amp; playback</h2></div>
+        <span class="bot-count">15 SLOTS</span>
+      </div>
+      <div class="panel-body">
+        <label class="field-label" for="channel-id">Discord voice channel ID</label>
+        <div class="channel-row">
+          <input class="text-input" id="channel-id" inputmode="numeric" autocomplete="off" placeholder="Paste the voice channel ID">
+          <button type="button" class="button primary" id="join-button">Join all</button>
+        </div>
+        <div class="control-grid">
+          <button type="button" class="button danger" id="disconnect-button">Disconnect all</button>
+          <button type="button" class="button primary" id="play-button">Play</button>
+          <button type="button" class="button secondary" id="stop-button">Stop</button>
+          <button type="button" class="button secondary" id="refresh-button">Refresh</button>
+        </div>
+        <div class="divider"></div>
+        <div class="gain-head">
+          <label class="field-label" for="gain-slider">Playback gain</label>
+          <output class="gain-value" id="gain-value">1.00×</output>
+        </div>
+        <input id="gain-slider" type="range" min="0" max="2" step="0.05" value="1" aria-label="Playback gain">
+        <div class="range-scale"><span>Mute · 0×</span><span>Standard · 1×</span><span>Maximum · 2×</span></div>
+        <p class="note">Gain is capped at 2×. Very loud playback can still damage hearing or speakers; keep your device volume moderate.</p>
+        <div class="message" id="control-message" role="status" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div><div class="eyebrow">Shared audio</div><h2>Upload &amp; library</h2></div>
+        <span class="bot-count" id="upload-limit">UP TO 90 MB / FILE</span>
+      </div>
+      <div class="panel-body">
+        <div class="selected-track" id="selected-track">
+          <div class="track-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M9 18V5l12-2v13M9 18c0 1.1-1.34 2-3 2s-3-.9-3-2 1.34-2 3-2 3 .9 3 2Zm12-2c0 1.1-1.34 2-3 2s-3-.9-3-2 1.34-2 3-2 3 .9 3 2Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <div class="track-info"><div class="track-name" id="selected-name">No track selected</div><div class="track-meta" id="selected-meta">Add audio to start playing</div></div>
+        </div>
+        <div class="upload-zone" id="upload-zone">
+          <div>
+            <div class="upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            <div class="upload-copy">Drop audio files here</div>
+            <div class="upload-sub">MP3, WAV, OGG, OPUS, M4A, AAC, FLAC, WEBM · up to 90 MB each</div>
+            <label for="audio-files" class="button secondary upload-button" id="upload-label">Browse audio</label>
+            <input class="file-input" type="file" id="audio-files" multiple accept="audio/*,.mp3,.mp2,.wav,.ogg,.oga,.opus,.m4a,.aac,.flac,.webm,.mp4,.mkv,.aif,.aiff,.wma,.mov">
+          </div>
+        </div>
+        <div class="progress-wrap" id="progress-wrap">
+          <div class="progress-copy"><span id="progress-label">Uploading…</span><span id="progress-number">0%</span></div>
+          <div class="progress"><i id="progress-bar"></i></div>
+        </div>
+        <div class="library-head"><strong>Audio library</strong><span id="library-count">0 files</span></div>
+        <div class="library" id="library"></div>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel" style="margin-top:17px">
+    <div class="panel-head fleet-head">
+      <div><div class="eyebrow">Live status</div><h2>Your bot fleet</h2></div>
+      <span class="bot-count" id="fleet-label">WAITING FOR BOTS</span>
+    </div>
+    <div class="bots" id="bots"></div>
+  </section>
+  <div class="footer">Bot connections require valid tokens and View Channel, Connect &amp; Speak permissions in the selected channel.</div>
 </main>
 <script>
-  const botsEl = document.getElementById("bots");
-  const summaryEl = document.getElementById("summary");
-  const rows = new Map();
-  const uploads = new Map();
-  let maxUploadMb = null;
-
-  const STATUS_TEXT = {
-    disabled: "disabled",
-    starting: "starting",
-    connected: "connected",
-    reconnecting: "reconnecting",
-    error: "error"
-  };
+  const $ = (selector) => document.querySelector(selector);
+  const botsElement = $("#bots");
+  const libraryElement = $("#library");
+  const uploadInput = $("#audio-files");
+  const uploadZone = $("#upload-zone");
+  let currentState = null;
+  let uploadRecord = null;
+  let gainTimer = null;
+  let actionBusy = false;
 
   function formatBytes(bytes) {
     if (!bytes) return "0 B";
@@ -123,354 +282,294 @@
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
   }
 
-  function formatWhen(timestamp) {
-    if (!timestamp) return "";
-    const seconds = Math.round((Date.now() - timestamp) / 1000);
-    if (seconds < 60) return seconds <= 1 ? "just now" : seconds + "s ago";
-    const minutes = Math.round(seconds / 60);
-    if (minutes < 60) return minutes + "m ago";
-    return Math.round(minutes / 60) + "h ago";
+  function setMessage(text, kind) {
+    const message = $("#control-message");
+    message.textContent = text || "";
+    message.className = "message" + (kind ? " " + kind : "");
   }
 
-  function createRow(bot) {
-    const row = document.createElement("section");
-    row.className = "bot";
-    row.innerHTML = [
-      '<div class="bot-top">',
-      '  <span class="bot-name"></span>',
-      '  <span class="bot-id"></span>',
-      '  <span class="pill status"></span>',
-      '  <span class="pill play"></span>',
-      '</div>',
-      '<div class="sound"></div>',
-      '<div class="library"></div>',
-      '<div class="actions">',
-      '  <label class="btn primary"><span class="choose-label">Add audio files</span><input type="file" multiple accept="audio/*,.mp3,.wav,.ogg,.oga,.opus,.m4a,.aac,.flac,.webm"></label>',
-      '  <button type="button" class="btn play-btn">Play</button>',
-      '  <button type="button" class="btn stop-btn">Stop</button>',
-      '</div>',
-      '<div class="progress"><i></i></div>',
-      '<div class="message"></div>'
-    ].join("");
-
-    const elements = {
-      name: row.querySelector(".bot-name"),
-      id: row.querySelector(".bot-id"),
-      status: row.querySelector(".status"),
-      play: row.querySelector(".play"),
-      sound: row.querySelector(".sound"),
-      library: row.querySelector(".library"),
-      input: row.querySelector("input[type=file]"),
-      chooseLabel: row.querySelector(".choose-label"),
-      playBtn: row.querySelector(".play-btn"),
-      stopBtn: row.querySelector(".stop-btn"),
-      progress: row.querySelector(".progress"),
-      progressBar: row.querySelector(".progress > i"),
-      message: row.querySelector(".message")
-    };
-
-    elements.name.textContent = bot.name;
-    elements.id.textContent = bot.id;
-
-    elements.input.addEventListener("change", () => {
-      const files = Array.from(elements.input.files || []);
-      elements.input.value = "";
-      if (files.length) startUpload(bot.id, files);
-    });
-
-    elements.playBtn.addEventListener("click", () => sendCommand(bot.id, "play"));
-    elements.stopBtn.addEventListener("click", () => sendCommand(bot.id, "stop"));
-
-    ["dragenter", "dragover"].forEach((type) =>
-      row.addEventListener(type, (event) => {
-        event.preventDefault();
-        row.classList.add("drag");
-      })
-    );
-    ["dragleave", "drop"].forEach((type) =>
-      row.addEventListener(type, (event) => {
-        event.preventDefault();
-        if (type === "dragleave" && row.contains(event.relatedTarget)) return;
-        row.classList.remove("drag");
-      })
-    );
-    row.addEventListener("drop", (event) => {
-      const files = Array.from(event.dataTransfer && event.dataTransfer.files || []);
-      if (files.length) startUpload(bot.id, files);
-    });
-
-    botsEl.appendChild(row);
-    rows.set(bot.id, { row, bot, elements });
-    return rows.get(bot.id);
-  }
-
-  function renderBot(bot) {
-    const entry = rows.get(bot.id) || createRow(bot);
-    const { row, elements } = entry;
-    entry.bot = bot;
-
-    const status = bot.status || "disabled";
-    elements.status.textContent = STATUS_TEXT[status] || status;
-    elements.status.className = "pill status " + status;
-
-    const playing = Boolean(bot.playing);
-    elements.play.textContent = playing ? "playing" : "silent";
-    elements.play.className = "pill play " + (playing ? "playing" : "");
-
-    const size = bot.soundBytes ? formatBytes(bot.soundBytes) : "no file yet";
-    const when = bot.soundUpdatedAt ? " · updated " + formatWhen(bot.soundUpdatedAt) : "";
-    elements.sound.innerHTML = "";
-    const code = document.createElement("code");
-    code.textContent = bot.soundFile;
-    elements.sound.append(code, document.createTextNode(" · " + size + when));
-    renderLibrary(bot, elements.library);
-
-    if (!uploads.has(bot.id) && bot.error) {
-      setMessage(elements, bot.error, "bad");
-    } else if (!uploads.has(bot.id) && !bot.error && elements.message.dataset.run === "1") {
-      return;
-    } else if (!uploads.has(bot.id)) {
-      setMessage(elements, playing ? "Playing in " + (bot.channelName || "voice channel") + "." : "", "");
+  function render(state) {
+    currentState = state;
+    if (!$("#channel-id").matches(":focus") && state.channelId) $("#channel-id").value = state.channelId;
+    const bots = state.bots || [];
+    const connected = bots.filter((bot) => bot.status === "connected").length;
+    const playing = bots.filter((bot) => bot.playing).length;
+    $("#online-count").textContent = connected + " / " + bots.length;
+    $("#playing-count").textContent = String(playing);
+    $("#audio-count").textContent = String((state.sounds || []).length);
+    $("#online-dot").className = "dot" + (connected ? " live" : "");
+    $("#playing-dot").className = "dot" + (playing ? " live" : "");
+    $("#service-dot").className = "dot" + (online ? " live" : "");
+    $("#service-label").textContent = online ? "Service online" : "No bot tokens";
+    $("#fleet-label").textContent = connected ? connected + " CONNECTED" : online ? online + " ONLINE · NOT JOINED" : "WAITING FOR BOTS";
+    $("#upload-limit").textContent = "UP TO " + state.maxUploadMb + " MB / FILE";
+    if (document.activeElement !== $("#gain-slider")) {
+      $("#gain-slider").value = state.gain;
+      $("#gain-value").textContent = Number(state.gain).toFixed(2) + "×";
     }
+
+    const selected = state.selectedAudio;
+    $("#selected-name").textContent = selected ? selected.name : "No track selected";
+    $("#selected-meta").textContent = selected ? formatBytes(selected.bytes) + " · shared with connected bots" : "Add audio to start playing";
+    renderLibrary(state.sounds || [], selected && selected.file);
+    renderBots(bots);
   }
 
-  function renderLibrary(bot, container) {
-    container.replaceChildren();
-    const sounds = bot.sounds || [];
-    if (sounds.length === 0) return;
-
-    const title = document.createElement("div");
-    title.className = "library-title";
-    title.textContent = "Audio library · click a file to play";
-    container.appendChild(title);
-
+  function renderLibrary(sounds, selectedFile) {
+    libraryElement.replaceChildren();
+    $("#library-count").textContent = sounds.length + " file" + (sounds.length === 1 ? "" : "s");
+    if (!sounds.length) {
+      const empty = document.createElement("div");
+      empty.className = "empty-library";
+      empty.textContent = "Your uploaded tracks will appear here.";
+      libraryElement.appendChild(empty);
+      return;
+    }
     sounds.forEach((sound) => {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "btn sound-choice" + (sound.file === bot.soundFile ? " active" : "");
-      button.disabled = uploads.has(bot.id);
-      button.addEventListener("click", () => selectSound(bot.id, sound.file));
+      button.className = "track-row" + (sound.file === selectedFile ? " active" : "");
+      button.disabled = Boolean(uploadRecord) || actionBusy;
+      button.addEventListener("click", () => selectAudio(sound.file));
+      const icon = document.createElement("span");
+      icon.className = "track-icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none"><path d="M9 18V5l12-2v13M9 18c0 1.1-1.34 2-3 2s-3-.9-3-2 1.34-2 3-2 3 .9 3 2Zm12-2c0 1.1-1.34 2-3 2s-3-.9-3-2 1.34-2 3-2 3 .9 3 2Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      const info = document.createElement("span");
+      info.className = "track-info";
       const name = document.createElement("span");
+      name.className = "track-name";
       name.textContent = sound.name;
-      const size = document.createElement("small");
-      size.textContent = formatBytes(sound.bytes);
-      button.append(name, size);
-      container.appendChild(button);
+      const meta = document.createElement("span");
+      meta.className = "track-meta";
+      meta.textContent = formatBytes(sound.bytes) + (sound.file === selectedFile ? " · selected" : "");
+      info.append(name, meta);
+      button.append(icon, info);
+      libraryElement.appendChild(button);
     });
   }
 
-  function setMessage(elements, text, kind) {
-    elements.message.dataset.run = "1";
-    elements.message.textContent = text;
-    elements.message.className = "message" + (kind ? " " + kind : "");
+  function renderBots(bots) {
+    botsElement.replaceChildren();
+    bots.forEach((bot) => {
+      const row = document.createElement("div");
+      row.className = "bot";
+      const dot = document.createElement("span");
+      dot.className = "bot-status " + bot.status;
+      const details = document.createElement("div");
+      details.className = "bot-main";
+      const name = document.createElement("div");
+      name.className = "bot-name";
+      name.textContent = bot.name;
+      const detail = document.createElement("div");
+      detail.className = "bot-detail";
+      detail.textContent = bot.error || (bot.channelName ? "In " + bot.channelName : bot.status === "disabled" ? "Token not configured" : "Ready to join");
+      details.append(name, detail);
+      const status = document.createElement("span");
+      status.className = "bot-state " + bot.status;
+      status.textContent = bot.playing ? "Playing" : bot.status;
+      row.append(dot, details, status);
+      botsElement.appendChild(row);
+    });
   }
 
-  function setProgress(entry, ratio) {
-    const { elements } = entry;
-    elements.progress.classList.add("on");
-    elements.progressBar.style.width = Math.max(2, Math.round(ratio * 100)) + "%";
+  async function refresh() {
+    try {
+      const response = await fetch("/api/state", { cache: "no-store" });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      render(await response.json());
+    } catch (error) {
+      $("#service-dot").className = "dot warn";
+      $("#service-label").textContent = "Server unreachable";
+    }
   }
 
-  function clearProgress(entry) {
-    entry.elements.progress.classList.remove("on");
-    entry.elements.progressBar.style.width = "0%";
+  async function fleetAction(action, extra = "") {
+    if (actionBusy) return;
+    if (action === "join" && !$("#channel-id").value.trim()) {
+      setMessage("Enter a Discord voice channel ID first.", "error");
+      $("#channel-id").focus();
+      return;
+    }
+    actionBusy = true;
+    const button = $("#" + action + "-button");
+    if (button) button.disabled = true;
+    const labels = { join: "Joining every available bot…", disconnect: "Disconnecting bots…", play: "Starting audio across the fleet…", stop: "Stopping all playback…" };
+    setMessage(labels[action] || "Working…", "");
+    try {
+      const suffix = action === "join" ? "?channelId=" + encodeURIComponent($("#channel-id").value.trim()) : extra;
+      const response = await fetch("/api/fleet/" + action + suffix, { method: "POST" });
+      const payload = await response.json();
+      if (payload.state) render(payload.state);
+      if (!response.ok || !payload.ok) {
+        const failures = (payload.results || []).filter((result) => !result.ok);
+        const details = failures.length ? " " + failures.length + " bot(s) need attention; see their status below." : "";
+        setMessage((payload.error || "Control action failed.") + details, "error");
+      } else if (action === "join") {
+        const joined = (payload.results || []).filter((result) => result.ok).length;
+        const failures = (payload.results || []).length - joined;
+        setMessage(joined + " bot(s) joined." + (failures ? " " + failures + " could not join; see their status below." : ""), failures ? "error" : "success");
+      } else {
+        setMessage(action === "disconnect" ? "All voice connections disconnected." : action === "play" ? "Playback started for connected bots." : "Playback stopped.", "success");
+      }
+    } catch (error) {
+      setMessage("Could not reach the server. Check that the app is running.", "error");
+    } finally {
+      actionBusy = false;
+      if (button) button.disabled = false;
+      refresh();
+    }
   }
 
-  function setBusy(entry, busy, label) {
-    entry.elements.playBtn.disabled = busy;
-    entry.elements.stopBtn.disabled = busy;
-    entry.elements.input.disabled = busy;
-    entry.elements.chooseLabel.textContent = busy ? label || "Adding…" : "Add audio files";
-  }
-
-  function uploadFile(botId, file, activate, record, onProgress) {
+  function uploadOne(file, record, onProgress) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      record.xhrs.add(xhr);
-      xhr.open(
-        "POST",
-        "/api/bots/" + encodeURIComponent(botId) + "/sound?name=" +
-          encodeURIComponent(file.name) + "&activate=" + (activate ? "true" : "false")
-      );
+      record.requests.add(xhr);
+      xhr.open("POST", "/api/audio?name=" + encodeURIComponent(file.name));
       xhr.setRequestHeader("content-type", "application/octet-stream");
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) onProgress(event.loaded);
       };
       xhr.onload = () => {
-        record.xhrs.delete(xhr);
+        record.requests.delete(xhr);
         let payload;
-        try {
-          payload = JSON.parse(xhr.responseText || "{}");
-        } catch (error) {
-          reject(new Error("The server returned an invalid upload response."));
-          return;
-        }
+        try { payload = JSON.parse(xhr.responseText || "{}"); }
+        catch { reject(new Error("The server returned an invalid upload response.")); return; }
         if (xhr.status === 200 && payload.ok) resolve(payload);
-        else reject(new Error(payload.error || ("Upload failed (" + xhr.status + ").")));
+        else reject(new Error(payload.error || "Upload failed (" + xhr.status + ")."));
       };
-      xhr.onerror = () => {
-        record.xhrs.delete(xhr);
-        reject(new Error("The upload could not reach the server."));
-      };
-      xhr.onabort = () => {
-        record.xhrs.delete(xhr);
-        reject(new Error("Upload canceled."));
-      };
+      xhr.onerror = () => { record.requests.delete(xhr); reject(new Error("The upload could not reach the server.")); };
+      xhr.onabort = () => { record.requests.delete(xhr); reject(new Error("Upload canceled.")); };
       xhr.send(file);
     });
   }
 
-  async function startUpload(botId, files) {
-    const entry = rows.get(botId);
-    if (!entry) return;
-
-    const tooLarge = files.filter((file) => maxUploadMb && file.size > maxUploadMb * 1024 * 1024);
-    if (tooLarge.length) {
-      setMessage(entry.elements, tooLarge.map((file) => file.name + " is larger than " + maxUploadMb + " MB.").join(" "), "bad");
+  async function uploadFiles(files) {
+    if (!files.length) return;
+    const overLimit = files.filter((file) => currentState && file.size > currentState.maxUploadMb * 1024 * 1024);
+    if (overLimit.length) {
+      const limit = currentState?.maxUploadMb || 90;
+      setMessage(overLimit.map((file) => file.name + " is over the " + limit + " MB per-file limit.").join(" "), "error");
       return;
     }
-
-    // A newer batch cancels the older batch instead of allowing stale uploads to finish later.
-    const inFlight = uploads.get(botId);
-    if (inFlight) {
-      inFlight.superseded = true;
-      inFlight.xhrs.forEach((xhr) => xhr.abort());
+    if (uploadRecord) {
+      uploadRecord.canceled = true;
+      uploadRecord.requests.forEach((xhr) => xhr.abort());
     }
+    const record = { requests: new Set(), canceled: false };
+    uploadRecord = record;
+    uploadZone.classList.add("busy");
+    $("#upload-label").textContent = "Uploading…";
+    $("#progress-wrap").classList.add("on");
+    $("#progress-label").textContent = "Uploading " + files.length + " file" + (files.length === 1 ? "" : "s");
+    $("#progress-number").textContent = "0%";
+    $("#progress-bar").style.width = "0%";
+    setMessage("Streaming files to the shared audio library…", "");
 
-    const record = { xhrs: new Set(), superseded: false };
-    uploads.set(botId, record);
-
-    entry.row.classList.add("uploading");
-    setBusy(entry, true);
-    setProgress(entry, 0);
-    const totalBytes = files.reduce((total, file) => total + file.size, 0);
-    const completed = new Map();
+    const total = files.reduce((sum, file) => sum + file.size, 0);
+    const loaded = new Array(files.length).fill(0);
     const results = new Array(files.length);
-    setMessage(entry.elements, "Adding " + files.length + " audio file" + (files.length === 1 ? "" : "s") + "…", "");
-
-    const updateProgress = (index, loaded) => {
-      completed.set(index, Math.min(loaded, files[index].size));
-      const bytes = [...completed.values()].reduce((sum, value) => sum + value, 0);
-      setProgress(entry, totalBytes ? bytes / totalBytes : 1);
+    const updateProgress = (index, value) => {
+      loaded[index] = Math.min(files[index].size, value);
+      const ratio = total ? loaded.reduce((sum, bytes) => sum + bytes, 0) / total : 0;
+      const percent = Math.round(ratio * 100);
+      $("#progress-number").textContent = percent + "%";
+      $("#progress-bar").style.width = percent + "%";
     };
-
     try {
-      let nextIndex = 0;
+      let next = 0;
       const worker = async () => {
-        while (nextIndex < files.length && !record.superseded) {
-          const index = nextIndex++;
+        while (next < files.length && !record.canceled) {
+          const index = next++;
+          if (files[index].size === 0) {
+            results[index] = { error: files[index].name + " is empty." };
+            continue;
+          }
           try {
-            results[index] = await uploadFile(
-              botId, files[index], files.length === 1, record,
-              (loaded) => updateProgress(index, loaded)
-            );
+            results[index] = await uploadOne(files[index], record, (value) => updateProgress(index, value));
             updateProgress(index, files[index].size);
           } catch (error) {
-            if (!record.superseded) results[index] = { error: error.message };
+            if (!record.canceled) results[index] = { error: files[index].name + ": " + error.message };
           }
         }
       };
       await Promise.all(Array.from({ length: Math.min(3, files.length) }, worker));
-      if (record.superseded || uploads.get(botId) !== record) return;
+      if (record.canceled || uploadRecord !== record) return;
 
       const successful = results.filter((result) => result && !result.error);
-      if (files.length > 1 && successful.length) {
-        const last = successful[successful.length - 1];
-        const response = await fetch(
-          "/api/bots/" + encodeURIComponent(botId) + "/select?file=" + encodeURIComponent(last.file),
-          { method: "POST" }
-        );
+      if (successful.length) {
+        const finalTrack = successful[successful.length - 1].audio;
+        const response = await fetch("/api/audio/select?file=" + encodeURIComponent(finalTrack.file), { method: "POST" });
         const payload = await response.json();
-        if (!response.ok || !payload.ok) throw new Error(payload.error || "Could not select the uploaded audio.");
-        if (payload.bot) renderBot(payload.bot);
-      } else if (successful[0]?.bot) {
-        renderBot(successful[0].bot);
+        if (!response.ok || !payload.ok) throw new Error(payload.error || "Could not select the uploaded track.");
+        render(payload.state);
       }
-
-      const failed = results.filter((result) => result && result.error);
-      if (successful.length && !failed.length) {
-        setMessage(entry.elements, successful.length + " audio file" + (successful.length === 1 ? "" : "s") + " added.", "ok");
-      } else if (successful.length) {
-        setMessage(entry.elements, successful.length + " added; " + failed.length + " failed: " + failed.map((result) => result.error).join(" "), "bad");
-      } else {
-        setMessage(entry.elements, failed.map((result) => result.error).join(" ") || "No audio files were added.", "bad");
-      }
+      const failures = results.filter((result) => result && result.error);
+      if (!failures.length) setMessage(successful.length + " audio file" + (successful.length === 1 ? "" : "s") + " ready to play.", "success");
+      else setMessage(successful.length + " uploaded; " + failures.map((result) => result.error).join(" "), "error");
     } catch (error) {
-      if (!record.superseded) setMessage(entry.elements, error.message, "bad");
+      if (!record.canceled) setMessage(error.message, "error");
     } finally {
-      if (uploads.get(botId) === record) {
-        uploads.delete(botId);
-        entry.row.classList.remove("uploading");
-        setBusy(entry, false);
-        clearProgress(entry);
+      if (uploadRecord === record) {
+        uploadRecord = null;
+        uploadZone.classList.remove("busy");
+        $("#upload-label").textContent = "Browse audio";
+        $("#progress-wrap").classList.remove("on");
         refresh();
       }
     }
   }
 
-  async function selectSound(botId, file) {
-    const entry = rows.get(botId);
-    if (!entry || uploads.has(botId)) return;
+  async function selectAudio(file) {
     try {
-      const response = await fetch(
-        "/api/bots/" + encodeURIComponent(botId) + "/select?file=" + encodeURIComponent(file),
-        { method: "POST" }
-      );
+      const response = await fetch("/api/audio/select?file=" + encodeURIComponent(file), { method: "POST" });
       const payload = await response.json();
-      if (!response.ok || !payload.ok) throw new Error(payload.error || "Could not select that audio.");
-      renderBot(payload.bot);
-      setMessage(entry.elements, payload.played ? "Selected — playing now." : "Selected. It plays once this bot is in a voice channel.", "ok");
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "Could not select that track.");
+      render(payload.state);
+      setMessage("Selected track is ready. Press Play to broadcast.", "success");
     } catch (error) {
-      setMessage(entry.elements, error.message, "bad");
+      setMessage(error.message, "error");
     }
   }
 
-  async function sendCommand(botId, action) {
-    const entry = rows.get(botId);
-    if (entry) setBusy(entry, true, action === "play" ? "Starting…" : "Stopping…");
-    try {
-      const response = await fetch("/api/bots/" + encodeURIComponent(botId) + "/" + action, { method: "POST" });
-      const payload = await response.json().catch(() => ({}));
-      if (entry) {
-        if (payload.bot) renderBot(payload.bot);
-        setMessage(entry.elements, payload.ok ? (action === "play" ? "Playing." : "Stopped.") : (payload.error || "Could not do that."), payload.ok ? "ok" : "bad");
-      }
-    } catch (error) {
-      if (entry) setMessage(entry.elements, "Could not reach the server.", "bad");
-    } finally {
-      if (entry) setBusy(entry, false);
-      refresh();
-    }
-  }
-
-  async function refresh() {
-    let payload;
-    try {
-      const response = await fetch("/api/bots", { cache: "no-store" });
-      if (!response.ok) throw new Error("HTTP " + response.status);
-      payload = await response.json();
-    } catch (error) {
-      summaryEl.innerHTML = "<span>Server unreachable — retrying…</span>";
-      return;
-    }
-
-    maxUploadMb = payload.maxUploadMb;
-    const list = payload.bots || [];
-    list.forEach(renderBot);
-
-    const connected = list.filter((bot) => bot.status === "connected").length;
-    const withSound = list.filter((bot) => bot.soundBytes > 0).length;
-    const playing = list.filter((bot) => bot.playing).length;
-    summaryEl.innerHTML = [
-      "<span>" + connected + "/" + list.length + " connected</span>",
-      "<span>" + withSound + " with audio</span>",
-      "<span>" + playing + " playing</span>",
-      "<span>max " + payload.maxUploadMb + " MB per file</span>"
-    ].join("");
-  }
+  $("#join-button").addEventListener("click", () => fleetAction("join"));
+  $("#disconnect-button").addEventListener("click", () => fleetAction("disconnect"));
+  $("#play-button").addEventListener("click", () => fleetAction("play"));
+  $("#stop-button").addEventListener("click", () => fleetAction("stop"));
+  $("#refresh-button").addEventListener("click", refresh);
+  $("#channel-id").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") fleetAction("join");
+  });
+  $("#gain-slider").addEventListener("input", () => {
+    const value = Number($("#gain-slider").value);
+    $("#gain-value").textContent = value.toFixed(2) + "×";
+    clearTimeout(gainTimer);
+    gainTimer = setTimeout(async () => {
+      try {
+        const response = await fetch("/api/fleet/gain?value=" + encodeURIComponent(value), { method: "POST" });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || "Could not update gain.");
+        if (payload.state) render(payload.state);
+      } catch (error) { setMessage(error.message, "error"); }
+    }, 180);
+  });
+  uploadInput.addEventListener("change", () => {
+    const files = Array.from(uploadInput.files || []);
+    uploadInput.value = "";
+    uploadFiles(files);
+  });
+  ["dragenter", "dragover"].forEach((name) => uploadZone.addEventListener(name, (event) => {
+    event.preventDefault();
+    uploadZone.classList.add("drag");
+  }));
+  ["dragleave", "drop"].forEach((name) => uploadZone.addEventListener(name, (event) => {
+    event.preventDefault();
+    uploadZone.classList.remove("drag");
+  }));
+  uploadZone.addEventListener("drop", (event) => uploadFiles(Array.from(event.dataTransfer?.files || [])));
 
   refresh();
-  setInterval(refresh, 4000);
+  setInterval(refresh, 2500);
 </script>
 </body>
 </html>

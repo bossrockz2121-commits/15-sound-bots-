@@ -94,6 +94,21 @@ describe("bot playback", () => {
     assert.equal(playback.player.state.status, "idle", "the player returns to idle");
   });
 
+  it("updates the gain on the active resource without restarting playback", async () => {
+    streams.length = 0;
+    recording = true;
+    const entry = makeEntry(soundA);
+    const playback = start(entry);
+    playback.play();
+    playback.setVolume(1.75);
+    recording = false;
+
+    assert.equal(streams.length, 1, "changing gain must not create another stream");
+    assert.equal(entry.volume, 1.75, "the selected gain is retained for future playback");
+    assert.equal(playback.isPlaying(), true, "the current stream remains active");
+    playback.stop();
+  });
+
   it("keeps only the newest stream alive when adds arrive rapidly", async () => {
     streams.length = 0;
     recording = true;
