@@ -27,7 +27,8 @@ currently connected to voice.
    voice-channel ID, and click **Join all bots**. This saves the ID and joins
    every online, token-configured bot in parallel. The channel's server is
    detected automatically; every bot must be invited to that server and have
-   View Channel and Connect permissions. A problem with one bot no longer
+   View Channel and Connect permissions. Grant Speak as well to play audio.
+   A problem with one bot no longer
    blocks the other bots; failed bots show their individual error in the
    dashboard.
 6. Use the single control row at the bottom: **Play audio** plays the selected track,
@@ -38,14 +39,19 @@ currently connected to voice.
    retry or rejoin voice. There is no per-bot selection.
 7. If a bot does not join voice, check its card for the specific connection
    error. Confirm its token is correct, it is invited to the selected server,
-   and it has View Channel and Connect permissions in the channel.
+   and it has View Channel and Connect permissions in the channel. Discord's
+   `Missing Access` response does not distinguish a bot that is absent from the
+   server from one blocked by a channel/category permission override. Check the
+   bot in the server's member list, then allow View Channel and Connect for that
+   bot or its role in the selected channel/category. Speak is also required for
+   playback. Make sure the selected channel ID belongs to the intended server.
    `/health` reports the Ogg Opus audio format used for playback. Audio is
    converted once per track and volume setting, then the same Opus packets are
    streamed to the fleet so every bot does not have to encode the track in
    JavaScript at playback time. New uploads are prepared in the background;
    the dashboard shows conversion progress, and Play audio reuses that prepared
    output. If conversion stops reporting progress, the dashboard shows an error
-   rather          rather than remaining on Preparing indefinitely. Audio is
+   rather than remaining on Preparing indefinitely. Audio is
    loudness-normalized to -16 LUFS and limited to a -1 dBFS peak ceiling; the
    gain control cannot override that ceiling. This reduces clipping but cannot
    guarantee safe listening volume on every speaker or headset.

@@ -318,7 +318,10 @@ function sendError(response, error, status = 400) {
 
 function explainDiscordAccessError(runtime, error) {
   if (error.code === 50001 || error.code === "50001" || error.message === "Missing Access") {
-    return `${runtime.config.name}: this bot has Missing Access to the selected channel. Invite this bot to the server and grant View Channel and Connect on the channel/category.`;
+    return `${runtime.config.name}: Discord denied access to voice channel ${runtime.channelId || "(no channel selected)"}. ` +
+      `Confirm this bot is a member of the channel's server, then grant View Channel and Connect to this bot ` +
+      `in the channel or its category. Grant Speak there as well for audio playback. Discord does not reveal ` +
+      `whether the cause is missing server membership or a channel permission override.`;
   }
   return error.message || String(error);
 }
@@ -719,8 +722,15 @@ async function joinBot(runtime) {
   }
   const guild = channel.guild;
   const permissions = channel.permissionsFor(runtime.client.user);
-  if (!permissions?.has(["ViewChannel", "Connect"])) {
-    throw new Error(`${runtime.config.name}: the bot needs View Channel and Connect permissions in the selected channel.`);
+  const requiredPermissions = ["ViewChannel", "Connect"];
+  const missingPermissions = permissions
+    ? requiredPermissions.filter((permission) => !permissions.has(permission))
+    : requiredPermissions;
+  if (missingPermissions.length > 0) {
+    throw new Error(
+      `${runtime.config.name}: missing ${missingPermissions.join(" and ")} permission(s) in voice channel ` +
+      `${channel.id}. Grant them to this bot in the channel or its category.`
+    );
   }
 
   if (runtime.voiceConnection?.joinConfig?.channelId === channel.id) {
