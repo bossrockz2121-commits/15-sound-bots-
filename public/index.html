@@ -1,124 +1,476 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#10110f">
-    <title>Soundroom — Bot Control</title>
-    <link rel="stylesheet" href="/styles.css">
-    <script src="/app.js" defer></script>
-  </head>
-  <body>
-    <div class="login-screen" id="login-screen">
-      <div class="login-card">
-        <div class="brand-mark">S<span>↗</span></div>
-        <p class="eyebrow">SOUNDROOM / PRIVATE CONSOLE</p>
-        <h1>Your bots.<br><span>Your sound.</span></h1>
-        <p class="login-copy">Sign in to manage your Discord sound bots.</p>
-        <form id="login-form">
-          <label for="password">Dashboard password</label>
-          <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required>
-          <button class="button button-primary login-button" type="submit">Unlock console <span>↗</span></button>
-          <p class="login-error" id="login-error" role="alert"></p>
-        </form>
-        <p class="login-hint">Set <code>DASHBOARD_PASSWORD</code> in your Render environment settings.</p>
-      </div>
-    </div>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sound bots</title>
+<style>
+  :root {
+    --bg: #10131a;
+    --card: #171c26;
+    --card-hover: #1c2230;
+    --line: #262d3d;
+    --text: #e8ecf4;
+    --muted: #8e99ad;
+    --accent: #5865f2;
+    --accent-strong: #4752c4;
+    --ok: #3ba55d;
+    --warn: #e0a13c;
+    --bad: #e05a6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 64px;
+    background: radial-gradient(1200px 600px at 50% -200px, #1d2436, var(--bg));
+    color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header, main { max-width: 980px; margin: 0 auto; }
+  h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -0.02em; }
+  .sub { margin: 0 0 14px; color: var(--muted); }
+  .summary {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    margin-bottom: 20px; font-size: 13px; color: var(--muted);
+  }
+  .summary span {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 999px; padding: 4px 12px;
+  }
+  .bots { display: grid; gap: 12px; }
+  .bot {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px 16px; transition: border-color .15s, background .15s;
+  }
+  .bot.drag { border-color: var(--accent); background: var(--card-hover); }
+  .bot.uploading { border-color: var(--accent); }
+  .bot-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .bot-name { font-weight: 600; }
+  .bot-id { color: var(--muted); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .pill {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+    padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted);
+  }
+  .pill.connected { color: var(--ok); border-color: rgba(59,165,93,.45); }
+  .pill.reconnecting, .pill.starting { color: var(--warn); border-color: rgba(224,161,60,.45); }
+  .pill.error { color: var(--bad); border-color: rgba(224,90,107,.45); }
+  .pill.playing { color: var(--accent); border-color: rgba(88,101,242,.6); }
+  .sound { margin: 10px 0 12px; font-size: 13px; color: var(--muted); }
+  .sound code { color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .library { display: grid; gap: 6px; margin: 12px 0; }
+  .library-title { color: var(--muted); font-size: 12px; font-weight: 600; }
+  .sound-choice { width: 100%; display: flex; justify-content: space-between; gap: 12px; text-align: left; }
+  .sound-choice.active { border-color: var(--accent); }
+  .sound-choice small { color: var(--muted); white-space: nowrap; }
+  .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .btn {
+    appearance: none; border: 1px solid var(--line); background: #1f2532; color: var(--text);
+    border-radius: 9px; padding: 8px 14px; font: inherit; font-weight: 600; font-size: 13px; cursor: pointer;
+    transition: background .15s, border-color .15s, opacity .15s;
+  }
+  .btn:hover:not(:disabled) { background: #262e3f; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); }
+  .btn.primary:hover:not(:disabled) { background: var(--accent-strong); }
+  .btn input { display: none; }
+  .progress {
+    position: relative; height: 6px; margin-top: 12px; border-radius: 999px;
+    background: #232a39; overflow: hidden; display: none;
+  }
+  .progress.on { display: block; }
+  .progress > i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--accent); transition: width .12s linear; }
+  .message { margin-top: 10px; font-size: 13px; min-height: 19px; color: var(--muted); }
+  .message.ok { color: var(--ok); }
+  .message.bad { color: var(--bad); }
+  .hint { margin-top: 28px; font-size: 13px; color: var(--muted); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sound bots</h1>
+  <p class="sub">Add one or more audio files to each bot’s library, then select a sound to play. Each bot plays one sound at a time.</p>
+  <div class="summary" id="summary"><span>Loading…</span></div>
+</header>
+<main>
+  <div class="bots" id="bots"></div>
+  <p class="hint">
+    Drop files anywhere on a bot card, or press <strong>Add audio files</strong>. Files upload in parallel.
+    If a bot shows
+    <em>disabled</em>, set <code>enabled: true</code> in bots.config.json and restart to hear it in Discord.
+    Health check: <a href="/health">/health</a>.
+  </p>
+</main>
+<script>
+  const botsEl = document.getElementById("bots");
+  const summaryEl = document.getElementById("summary");
+  const rows = new Map();
+  const uploads = new Map();
+  let maxUploadMb = null;
 
-    <div class="app-shell hidden" id="app-shell">
-      <aside class="sidebar">
-        <a class="brand" href="/" aria-label="Soundroom home"><span class="brand-mark small">S<span>↗</span></span><span>SOUNDROOM<small>BOT CONTROL</small></span></a>
-        <div class="side-label">WORKSPACE</div>
-        <a class="side-link active" href="#studio"><span class="side-icon">◈</span>Live studio</a>
-        <a class="side-link" href="#bot-grid"><span class="side-icon">▦</span>Bot fleet <span class="side-count" id="sidebar-count">15</span></a>
-        <div class="sidebar-bottom">
-          <div class="server-card"><span class="server-icon">◎</span><span><strong>Discord gateway</strong><small id="gateway-state">Connecting…</small></span><i class="status-dot"></i></div>
-          <button class="logout-button" id="logout-button" type="button">↗ <span>Sign out</span></button>
-        </div>
-      </aside>
+  const STATUS_TEXT = {
+    disabled: "disabled",
+    starting: "starting",
+    connected: "connected",
+    reconnecting: "reconnecting",
+    error: "error"
+  };
 
-      <main class="main-content" id="studio">
-        <header class="topbar">
-          <div class="breadcrumbs">WORKSPACE <span>/</span> LIVE STUDIO</div>
-          <div class="topbar-right"><span class="live-pill"><i></i> CONTROL PANEL</span><button class="icon-button" id="refresh-button" type="button" aria-label="Refresh status" title="Refresh status">↻</button></div>
-        </header>
+  function formatBytes(bytes) {
+    if (!bytes) return "0 B";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
 
-        <section class="welcome-row">
-          <div><p class="eyebrow">YOUR COMMAND CENTER <span class="eyebrow-line"></span> LIVE BOT CONTROL</p><h1>Make some <span>noise.</span></h1><p class="welcome-copy">One room. Fifteen bots. Your sound, on cue.</p></div>
-          <div class="fleet-counter"><span class="counter-orb">◉</span><div><strong><span id="online-count">0</span><small> / 15</small></strong><small class="counter-label">BOTS ONLINE</small></div></div>
-        </section>
+  function formatWhen(timestamp) {
+    if (!timestamp) return "";
+    const seconds = Math.round((Date.now() - timestamp) / 1000);
+    if (seconds < 60) return seconds <= 1 ? "just now" : seconds + "s ago";
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return minutes + "m ago";
+    return Math.round(minutes / 60) + "h ago";
+  }
 
-        <section class="metric-grid" aria-label="Bot summary">
-          <article class="metric-card"><span class="metric-icon mint">◈</span><span class="metric-label">CONNECTED</span><strong id="metric-connected">0</strong><span class="metric-note">in voice channels</span></article>
-          <article class="metric-card"><span class="metric-icon violet">♫</span><span class="metric-label">PLAYING</span><strong id="metric-playing">0</strong><span class="metric-note">streaming audio now</span></article>
-          <article class="metric-card"><span class="metric-icon amber">◉</span><span class="metric-label">TOKENS SET</span><strong id="configured-count">0</strong><span class="metric-note">managed together</span></article>
-          <article class="metric-card dark-metric"><span class="metric-label">FLEET STATUS</span><strong id="fleet-status">STANDING BY</strong><span class="metric-note"><i class="tiny-dot"></i> All systems monitored</span></article>
-        </section>
+  function createRow(bot) {
+    const row = document.createElement("section");
+    row.className = "bot";
+    row.innerHTML = [
+      '<div class="bot-top">',
+      '  <span class="bot-name"></span>',
+      '  <span class="bot-id"></span>',
+      '  <span class="pill status"></span>',
+      '  <span class="pill play"></span>',
+      '</div>',
+      '<div class="sound"></div>',
+      '<div class="library"></div>',
+      '<div class="actions">',
+      '  <label class="btn primary"><span class="choose-label">Add audio files</span><input type="file" multiple accept="audio/*,.mp3,.wav,.ogg,.oga,.opus,.m4a,.aac,.flac,.webm"></label>',
+      '  <button type="button" class="btn play-btn">Play</button>',
+      '  <button type="button" class="btn stop-btn">Stop</button>',
+      '</div>',
+      '<div class="progress"><i></i></div>',
+      '<div class="message"></div>'
+    ].join("");
 
-        <section class="control-panel audio-source-panel">
-          <div class="section-heading">
-            <div><p class="eyebrow">01 / AUDIO SOURCE</p><h2>Choose your sound</h2></div>
-            <span class="section-tag">BULK ADD · 20 FILES · 50 MB EACH</span>
-          </div>
-          <div class="audio-row">
-            <label class="audio-picker" for="audio-select"><span class="audio-icon">♫</span><span><small>SELECTED TRACK</small><select id="audio-select" aria-label="Select an uploaded audio file"><option value="">Upload a sound to get started</option></select></span><span class="chevron">⌄</span></label>
-            <label class="button button-upload" for="audio-file"><span>＋</span> Add audio files<input id="audio-file" type="file" accept="audio/*,.mp3,.wav,.ogg,.opus,.m4a,.aac,.flac,.webm" multiple hidden></label>
-          </div>
-          <p class="upload-note" id="upload-note">Upload and select a sound, then use Play audio in the control bar below.</p>
-          <div class="audio-library-summary"><span id="audio-track-count">0 tracks uploaded</span><span>PREPARED FOR VOICE PLAYBACK</span></div>
-          <div class="audio-preparation" id="audio-preparation" role="status" aria-live="polite">
-            <div class="audio-preparation-copy"><span id="audio-preparation-label">Choose a track to prepare it for playback.</span><span id="audio-preparation-percent"></span></div>
-            <progress id="audio-preparation-progress" max="100" value="0" aria-label="Audio preparation progress"></progress>
-          </div>
-          <div class="audio-gain">
-            <label class="audio-gain-heading" for="audio-gain"><span>MASTER GAIN</span><strong id="audio-gain-value">1×</strong></label>
-            <div class="audio-gain-controls">
-              <button class="gain-step" type="button" data-gain-step="-1" aria-label="Decrease master gain">−</button>
-              <input id="audio-gain" type="range" min="0" max="1000" step="1" value="1" aria-label="Master audio gain multiplier">
-              <button class="gain-step" type="button" data-gain-step="1" aria-label="Increase master gain">+</button>
-            </div>
-            <p class="audio-gain-warning">For the next Play audio. Loudness is normalized and limited to −1 dBFS; high playback volume can still harm hearing.</p>
-          </div>
-        </section>
+    const elements = {
+      name: row.querySelector(".bot-name"),
+      id: row.querySelector(".bot-id"),
+      status: row.querySelector(".status"),
+      play: row.querySelector(".play"),
+      sound: row.querySelector(".sound"),
+      library: row.querySelector(".library"),
+      input: row.querySelector("input[type=file]"),
+      chooseLabel: row.querySelector(".choose-label"),
+      playBtn: row.querySelector(".play-btn"),
+      stopBtn: row.querySelector(".stop-btn"),
+      progress: row.querySelector(".progress"),
+      progressBar: row.querySelector(".progress > i"),
+      message: row.querySelector(".message")
+    };
 
-        <section class="control-panel channel-panel">
-          <div class="section-heading">
-            <div><p class="eyebrow">02 / SHARED DESTINATION</p><h2>One voice channel for every bot</h2></div>
-            <span class="section-tag">PASTE THE CHANNEL ID</span>
-          </div>
-          <form class="fleet-channel-form" id="fleet-channel-form">
-            <label class="channel-id-field" for="fleet-channel-id">
-              <span class="channel-id-icon">#</span>
-              <input id="fleet-channel-id" name="channelId" inputmode="numeric" autocomplete="off" maxlength="20" pattern="[0-9]{17,20}" placeholder="e.g. 123456789012345678" aria-describedby="channel-note">
-            </label>
-          </form>
-          <p class="upload-note" id="channel-note">Enter the channel ID, then click Join VC in the control bar below.</p>
-        </section>
+    elements.name.textContent = bot.name;
+    elements.id.textContent = bot.id;
 
-        <section class="fleet-section" id="bot-grid">
-          <div class="fleet-heading">
-            <div><p class="eyebrow">03 / BOT FLEET</p><h2>Your sound bots <span class="fleet-total">15</span></h2></div>
-            <span class="selected-label"><b id="fleet-online-count">0</b> online</span>
-          </div>
-          <div class="bot-grid" id="bot-list" aria-live="polite"></div>
-        </section>
+    elements.input.addEventListener("change", () => {
+      const files = Array.from(elements.input.files || []);
+      elements.input.value = "";
+      if (files.length) startUpload(bot.id, files);
+    });
 
-        <footer class="page-footer"><span>SOUNDROOM <span class="footer-separator">/</span> DISCORD BOT OPERATIONS</span><span>CONTROL YOUR SOUND. STAY IN THE MOMENT.</span></footer>
-      </main>
+    elements.playBtn.addEventListener("click", () => sendCommand(bot.id, "play"));
+    elements.stopBtn.addEventListener("click", () => sendCommand(bot.id, "stop"));
 
-      <div class="command-dock">
-        <div class="dock-actions">
-          <button class="button button-primary button-batch" type="button" data-action="start-all" title="Play selected audio on every joined bot">▶ <span>Play audio</span></button>
-          <button class="button button-stop" type="button" data-action="stop-all" title="Stop audio without leaving voice">■ <span>Stop audio</span></button>
-          <button class="button button-channel" type="button" data-action="join-all" title="Join the selected voice channel with all configured bots">↗ <span>Join VC</span></button>
-          <button class="button button-stop button-batch-stop" type="button" data-action="disconnect-all" title="Disconnect every bot from voice">⇥ <span>Disconnect VC</span></button>
-          <button class="button button-quiet" type="button" data-action="mute-all">◖ <span>Mute all</span></button>
-          <button class="button button-quiet" type="button" data-action="unmute-all">◗ <span>Unmute all</span></button>
-          <button class="button button-quiet" type="button" data-action="deafen-all">⊘ <span>Deafen all</span></button>
-          <button class="button button-quiet" type="button" data-action="undeafen-all">◎ <span>Undeafen all</span></button>
-        </div>
-      </div>
-    </div>
-    <div class="toast-region" id="toast-region" aria-live="polite"></div>
-  </body>
+    ["dragenter", "dragover"].forEach((type) =>
+      row.addEventListener(type, (event) => {
+        event.preventDefault();
+        row.classList.add("drag");
+      })
+    );
+    ["dragleave", "drop"].forEach((type) =>
+      row.addEventListener(type, (event) => {
+        event.preventDefault();
+        if (type === "dragleave" && row.contains(event.relatedTarget)) return;
+        row.classList.remove("drag");
+      })
+    );
+    row.addEventListener("drop", (event) => {
+      const files = Array.from(event.dataTransfer && event.dataTransfer.files || []);
+      if (files.length) startUpload(bot.id, files);
+    });
+
+    botsEl.appendChild(row);
+    rows.set(bot.id, { row, bot, elements });
+    return rows.get(bot.id);
+  }
+
+  function renderBot(bot) {
+    const entry = rows.get(bot.id) || createRow(bot);
+    const { row, elements } = entry;
+    entry.bot = bot;
+
+    const status = bot.status || "disabled";
+    elements.status.textContent = STATUS_TEXT[status] || status;
+    elements.status.className = "pill status " + status;
+
+    const playing = Boolean(bot.playing);
+    elements.play.textContent = playing ? "playing" : "silent";
+    elements.play.className = "pill play " + (playing ? "playing" : "");
+
+    const size = bot.soundBytes ? formatBytes(bot.soundBytes) : "no file yet";
+    const when = bot.soundUpdatedAt ? " · updated " + formatWhen(bot.soundUpdatedAt) : "";
+    elements.sound.innerHTML = "";
+    const code = document.createElement("code");
+    code.textContent = bot.soundFile;
+    elements.sound.append(code, document.createTextNode(" · " + size + when));
+    renderLibrary(bot, elements.library);
+
+    if (!uploads.has(bot.id) && bot.error) {
+      setMessage(elements, bot.error, "bad");
+    } else if (!uploads.has(bot.id) && !bot.error && elements.message.dataset.run === "1") {
+      return;
+    } else if (!uploads.has(bot.id)) {
+      setMessage(elements, playing ? "Playing in " + (bot.channelName || "voice channel") + "." : "", "");
+    }
+  }
+
+  function renderLibrary(bot, container) {
+    container.replaceChildren();
+    const sounds = bot.sounds || [];
+    if (sounds.length === 0) return;
+
+    const title = document.createElement("div");
+    title.className = "library-title";
+    title.textContent = "Audio library · click a file to play";
+    container.appendChild(title);
+
+    sounds.forEach((sound) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn sound-choice" + (sound.file === bot.soundFile ? " active" : "");
+      button.disabled = uploads.has(bot.id);
+      button.addEventListener("click", () => selectSound(bot.id, sound.file));
+      const name = document.createElement("span");
+      name.textContent = sound.name;
+      const size = document.createElement("small");
+      size.textContent = formatBytes(sound.bytes);
+      button.append(name, size);
+      container.appendChild(button);
+    });
+  }
+
+  function setMessage(elements, text, kind) {
+    elements.message.dataset.run = "1";
+    elements.message.textContent = text;
+    elements.message.className = "message" + (kind ? " " + kind : "");
+  }
+
+  function setProgress(entry, ratio) {
+    const { elements } = entry;
+    elements.progress.classList.add("on");
+    elements.progressBar.style.width = Math.max(2, Math.round(ratio * 100)) + "%";
+  }
+
+  function clearProgress(entry) {
+    entry.elements.progress.classList.remove("on");
+    entry.elements.progressBar.style.width = "0%";
+  }
+
+  function setBusy(entry, busy, label) {
+    entry.elements.playBtn.disabled = busy;
+    entry.elements.stopBtn.disabled = busy;
+    entry.elements.input.disabled = busy;
+    entry.elements.chooseLabel.textContent = busy ? label || "Adding…" : "Add audio files";
+  }
+
+  function uploadFile(botId, file, activate, record, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      record.xhrs.add(xhr);
+      xhr.open(
+        "POST",
+        "/api/bots/" + encodeURIComponent(botId) + "/sound?name=" +
+          encodeURIComponent(file.name) + "&activate=" + (activate ? "true" : "false")
+      );
+      xhr.setRequestHeader("content-type", "application/octet-stream");
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) onProgress(event.loaded);
+      };
+      xhr.onload = () => {
+        record.xhrs.delete(xhr);
+        let payload;
+        try {
+          payload = JSON.parse(xhr.responseText || "{}");
+        } catch (error) {
+          reject(new Error("The server returned an invalid upload response."));
+          return;
+        }
+        if (xhr.status === 200 && payload.ok) resolve(payload);
+        else reject(new Error(payload.error || ("Upload failed (" + xhr.status + ").")));
+      };
+      xhr.onerror = () => {
+        record.xhrs.delete(xhr);
+        reject(new Error("The upload could not reach the server."));
+      };
+      xhr.onabort = () => {
+        record.xhrs.delete(xhr);
+        reject(new Error("Upload canceled."));
+      };
+      xhr.send(file);
+    });
+  }
+
+  async function startUpload(botId, files) {
+    const entry = rows.get(botId);
+    if (!entry) return;
+
+    const tooLarge = files.filter((file) => maxUploadMb && file.size > maxUploadMb * 1024 * 1024);
+    if (tooLarge.length) {
+      setMessage(entry.elements, tooLarge.map((file) => file.name + " is larger than " + maxUploadMb + " MB.").join(" "), "bad");
+      return;
+    }
+
+    // A newer batch cancels the older batch instead of allowing stale uploads to finish later.
+    const inFlight = uploads.get(botId);
+    if (inFlight) {
+      inFlight.superseded = true;
+      inFlight.xhrs.forEach((xhr) => xhr.abort());
+    }
+
+    const record = { xhrs: new Set(), superseded: false };
+    uploads.set(botId, record);
+
+    entry.row.classList.add("uploading");
+    setBusy(entry, true);
+    setProgress(entry, 0);
+    const totalBytes = files.reduce((total, file) => total + file.size, 0);
+    const completed = new Map();
+    const results = new Array(files.length);
+    setMessage(entry.elements, "Adding " + files.length + " audio file" + (files.length === 1 ? "" : "s") + "…", "");
+
+    const updateProgress = (index, loaded) => {
+      completed.set(index, Math.min(loaded, files[index].size));
+      const bytes = [...completed.values()].reduce((sum, value) => sum + value, 0);
+      setProgress(entry, totalBytes ? bytes / totalBytes : 1);
+    };
+
+    try {
+      let nextIndex = 0;
+      const worker = async () => {
+        while (nextIndex < files.length && !record.superseded) {
+          const index = nextIndex++;
+          try {
+            results[index] = await uploadFile(
+              botId, files[index], files.length === 1, record,
+              (loaded) => updateProgress(index, loaded)
+            );
+            updateProgress(index, files[index].size);
+          } catch (error) {
+            if (!record.superseded) results[index] = { error: error.message };
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(3, files.length) }, worker));
+      if (record.superseded || uploads.get(botId) !== record) return;
+
+      const successful = results.filter((result) => result && !result.error);
+      if (files.length > 1 && successful.length) {
+        const last = successful[successful.length - 1];
+        const response = await fetch(
+          "/api/bots/" + encodeURIComponent(botId) + "/select?file=" + encodeURIComponent(last.file),
+          { method: "POST" }
+        );
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || "Could not select the uploaded audio.");
+        if (payload.bot) renderBot(payload.bot);
+      } else if (successful[0]?.bot) {
+        renderBot(successful[0].bot);
+      }
+
+      const failed = results.filter((result) => result && result.error);
+      if (successful.length && !failed.length) {
+        setMessage(entry.elements, successful.length + " audio file" + (successful.length === 1 ? "" : "s") + " added.", "ok");
+      } else if (successful.length) {
+        setMessage(entry.elements, successful.length + " added; " + failed.length + " failed: " + failed.map((result) => result.error).join(" "), "bad");
+      } else {
+        setMessage(entry.elements, failed.map((result) => result.error).join(" ") || "No audio files were added.", "bad");
+      }
+    } catch (error) {
+      if (!record.superseded) setMessage(entry.elements, error.message, "bad");
+    } finally {
+      if (uploads.get(botId) === record) {
+        uploads.delete(botId);
+        entry.row.classList.remove("uploading");
+        setBusy(entry, false);
+        clearProgress(entry);
+        refresh();
+      }
+    }
+  }
+
+  async function selectSound(botId, file) {
+    const entry = rows.get(botId);
+    if (!entry || uploads.has(botId)) return;
+    try {
+      const response = await fetch(
+        "/api/bots/" + encodeURIComponent(botId) + "/select?file=" + encodeURIComponent(file),
+        { method: "POST" }
+      );
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "Could not select that audio.");
+      renderBot(payload.bot);
+      setMessage(entry.elements, payload.played ? "Selected — playing now." : "Selected. It plays once this bot is in a voice channel.", "ok");
+    } catch (error) {
+      setMessage(entry.elements, error.message, "bad");
+    }
+  }
+
+  async function sendCommand(botId, action) {
+    const entry = rows.get(botId);
+    if (entry) setBusy(entry, true, action === "play" ? "Starting…" : "Stopping…");
+    try {
+      const response = await fetch("/api/bots/" + encodeURIComponent(botId) + "/" + action, { method: "POST" });
+      const payload = await response.json().catch(() => ({}));
+      if (entry) {
+        if (payload.bot) renderBot(payload.bot);
+        setMessage(entry.elements, payload.ok ? (action === "play" ? "Playing." : "Stopped.") : (payload.error || "Could not do that."), payload.ok ? "ok" : "bad");
+      }
+    } catch (error) {
+      if (entry) setMessage(entry.elements, "Could not reach the server.", "bad");
+    } finally {
+      if (entry) setBusy(entry, false);
+      refresh();
+    }
+  }
+
+  async function refresh() {
+    let payload;
+    try {
+      const response = await fetch("/api/bots", { cache: "no-store" });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      payload = await response.json();
+    } catch (error) {
+      summaryEl.innerHTML = "<span>Server unreachable — retrying…</span>";
+      return;
+    }
+
+    maxUploadMb = payload.maxUploadMb;
+    const list = payload.bots || [];
+    list.forEach(renderBot);
+
+    const connected = list.filter((bot) => bot.status === "connected").length;
+    const withSound = list.filter((bot) => bot.soundBytes > 0).length;
+    const playing = list.filter((bot) => bot.playing).length;
+    summaryEl.innerHTML = [
+      "<span>" + connected + "/" + list.length + " connected</span>",
+      "<span>" + withSound + " with audio</span>",
+      "<span>" + playing + " playing</span>",
+      "<span>max " + payload.maxUploadMb + " MB per file</span>"
+    ].join("");
+  }
+
+  refresh();
+  setInterval(refresh, 4000);
+</script>
+</body>
 </html>

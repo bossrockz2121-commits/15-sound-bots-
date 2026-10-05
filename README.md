@@ -1,104 +1,94 @@
-# Soundroom — 15 Discord Sound Bots
+# 15 Discord Sound Bot Settings
 
-Soundroom is a password-protected web dashboard and Node.js service for
-operating up to 15 Discord sound bots together. Add up to 20 audio files in one
-selection (200 MB total; 50 MB each), set one voice-channel ID for the fleet,
-then start or stop every token-configured bot at once.
-Mute, unmute, deafen, and undeafen controls apply to every bot
-currently connected to voice.
+`bots.config.json` contains settings for 15 Discord sound bots. The Node.js
+application starts the enabled bots, serves the sound-management page at `/`,
+and exposes `/health` for Render.
 
-## Configure
+## Add audio from the web page
 
-1. Create a Discord application and bot for each bot slot you plan to use.
-   Invite each bot to your server with permission to view the server and voice
-   channel, connect, and speak.
-2. Configure `DISCORD_BOT_TOKEN_01` through `DISCORD_BOT_TOKEN_15` as
-   environment variables. Use a local `.env` copied from `.env.example` for
-   local development; on Render, enter tokens in the service's **Environment**
-   settings. Never commit or share real bot tokens.
-3. Set a strong `DASHBOARD_PASSWORD` environment variable. The dashboard will
-   not permit control actions without it. Optionally set `VOICE_CHANNEL_ID` to
-   prefill the shared voice channel.
-4. Deploy the repository as a Render **Web Service** with **Build Command**
-   `npm install` and **Start Command** `npm start`. Render supplies `PORT`;
-   `/health` is the health-check endpoint. `.node-version` selects Node.js
-   22.12.0, required by the DAVE-capable Discord voice library.
-5. Open the service URL, sign in with `DASHBOARD_PASSWORD`, enter one Discord
-   voice-channel ID, and click **Join all bots**. This saves the ID and joins
-   every online, token-configured bot in parallel. The channel's server is
-   detected automatically; every bot must be invited to that server and have
-   View Channel and Connect permissions. Grant Speak as well to play audio.
-   A problem with one bot no longer
-   blocks the other bots; failed bots show their individual error in the
-   dashboard.
-6. Use the single control row at the bottom: **Play audio** plays the selected track,
-   **Stop audio** stops playback without leaving voice, **Join VC** joins the selected
-   channel, and **Disconnect VC** leaves it. Mute/Unmute/Deafen/Undeafen apply
-   fleet-wide. Audio playback also requires Speak permission.
-   Joining and disconnecting are user-controlled; the app does not automatically
-   retry or rejoin voice. There is no per-bot selection.
-7. If a bot does not join voice, check its card for the specific connection
-   error. Confirm its token is correct, it is invited to the selected server,
-   and it has View Channel and Connect permissions in the channel. Discord's
-   `Missing Access` response does not distinguish a bot that is absent from the
-   server from one blocked by a channel/category permission override. Check the
-   bot in the server's member list, then allow View Channel and Connect for that
-   bot or its role in the selected channel/category. Speak is also required for
-   playback. Make sure the selected channel ID belongs to the intended server.
-   `/health` reports the Ogg Opus audio format used for playback. Audio is
-   converted once per track and volume setting, then the same Opus packets are
-   streamed to the fleet so every bot does not have to encode the track in
-   JavaScript at playback time. New uploads are prepared in the background;
-   the dashboard shows conversion progress, and Play audio reuses that prepared
-   output. If conversion stops reporting progress, the dashboard shows an error
-   rather than remaining on Preparing indefinitely. Audio is
-   loudness-normalized to -16 LUFS and limited to a -1 dBFS peak ceiling; the
-   gain control cannot override that ceiling. This reduces clipping but cannot
-   guarantee safe listening volume on every speaker or headset.
-   The master-gain slider applies from 0× to 1000× on the next playback. The
-   fleet prepares audio for every bot first, then starts all prepared players
-   together in one event-loop pass. Discord network latency can still cause
-   small differences between bots. High gain can damage hearing or speakers;
-   the audio limiter reduces clipping but cannot make extreme levels safe.
-   The selected master gain is held in memory and resets to 1× on service restart.
-   Voice-state gateway updates are enabled by the app; no privileged portal
-   intent is required for `GuildVoiceStates`.
-   A bot can appear in Discord's voice member list before its voice media
-   connection is ready. Audio starts only when the dashboard reports
-   **Voice media ready**. The voice handshake waits up to 45 seconds; if it
-   remains pending, use **Disconnect VC** to cancel it before retrying.
-   A `voice network closed` error means the voice transport closed before
-   media became ready, not that the channel join necessarily failed. Check
-   the reported voice WebSocket close code and Render's outbound Discord voice
-   WebSocket/UDP connectivity. Audio cannot play until the connection reaches
-   `Ready`. Close code `4017` specifically means Discord requires DAVE
-   end-to-end encryption; deploy the current `package-lock.json` with
-   `@discordjs/voice` 0.19.2 and Node.js 22.12.0 or newer.
-   If a connection is `destroyed`, check the bot card and Render logs for the
-   Discord gateway shard close code. The voice adapter is destroyed when its
-   gateway shard disconnects; confirm each token is used by one running service
-   and check Render's gateway/WebSocket connection and restart logs.
-   If it remains in `signalling`, the bot card identifies whether Discord has
-   sent the bot voice-state update and voice-server update, plus the reported
-   voice endpoint and the voice library's exact networking stage. The app uses
-   discord.js's standard voice adapter so the voice library itself processes
-   gateway packets and starts networking. Verify this bot's token is not being
-   used by a second running service, and that the bot is still online in the
-   selected server.
-   Each of the 15 slots must also have a unique token. Duplicate tokens are
-   detected at startup and the duplicate slot is kept offline with an error.
+Start the app and open `http://localhost:3000/` (or the Render URL):
 
-Bots with tokens connect to Discord when the service starts. Slots without a
-token remain visible but offline and are skipped by fleet start. A channel
-entered in the dashboard is held in memory until the service restarts; use
-`VOICE_CHANNEL_ID` in the service environment to restore it after a restart.
-Audio uploads are limited to 50 MB and supported audio
-formats (MP3, WAV, OGG, OPUS, M4A, AAC, FLAC, and WEBM).
+1. Pick or drop one or more audio files on a bot card. `.mp3`, `.wav`, `.ogg`, `.oga`,
+   `.opus`, `.m4a`, `.aac`, `.flac`, `.webm`, `.mp4`, `.mkv`, `.aif`, `.aiff`,
+   `.wma` and `.mov` are accepted, up to 25 MB per file. Set `MAX_SOUND_MB` to
+   change that limit.
+2. Files are streamed straight to the bot's audio library, with up to three
+   files uploading at once. A single added file starts playing immediately;
+   for a batch, the final successfully uploaded file is selected and played.
+3. Choose a file from the library section on the bot card to play it. Uploads
+   with the same filename replace that library entry; other files remain
+   available for later selection.
 
-## Render audio persistence
+Each bot owns exactly one audio player. A new sound stops the previous one,
+including its ffmpeg process, before it starts, so a sound can never overlap
+itself or a newer sound. `npm test` runs the playback regression tests covering
+that guarantee.
 
-Render's ordinary service filesystem is temporary. To keep uploaded sounds
-across deploys and restarts, attach a persistent disk mounted at
-`/var/data` and set `AUDIO_UPLOAD_DIR` to `/var/data/audio` in the service
-environment. Without a disk, uploaded files may be lost when Render replaces
-the service instance.
+The page is driven by these endpoints:
+
+| Request | Effect |
+| --- | --- |
+| `GET /api/bots` | Status, library, selected sound and playback state of all 15 bots |
+| `POST /api/bots/<id>/sound?name=<filename>` | Stream raw audio bytes into that bot's library |
+| `POST /api/bots/<id>/select?file=<path>` | Select and play a file from that bot's library |
+| `POST /api/bots/<id>/play`, `POST /api/bots/<id>/stop` | Start or stop that bot's sound |
+| `GET /health` | Health check used by Render |
+
+Uploaded sounds live under `sounds/<bot-id>/` on the service's own disk. They
+survive restarts and redeploys only as long as the container keeps its
+filesystem, so commit the files you want permanently next to `bots.config.json`.
+The configured `soundFile` remains the initial sound; the web page also lists
+that file alongside uploaded library sounds.
+
+## Configure a bot
+
+For each bot:
+
+1. Create a Discord application and bot, then invite that bot to the target
+   server. Every bot account must be invited separately. In the Discord
+   Developer Portal's OAuth2 URL Generator, select the `bot` scope and grant
+   **View Channels**, **Connect**, and **Speak**. Also grant those permissions
+   to each bot in the target voice channel's permissions (or its category);
+   channel/category overrides can deny access even when the server role allows it.
+2. For local development, copy `.env.example` to `.env` and put that bot's
+   token in the matching `DISCORD_BOT_TOKEN_XX` variable. On Render, add the
+   same variable names under **Environment** instead. Never commit or share
+   bot tokens.
+3. Set `guildId` and `voiceChannelId` in `bots.config.json`.
+4. Put the audio file at the configured `soundFile` path, or add it from the
+   web page instead.
+5. Set `enabled` to `true` for bots you want the application to start.
+   The default is `false`, so no bot logs in until you enable it.
+
+`defaults` provides the default `enabled`, `volume` (0–1), and `loop` values.
+An individual bot can override these by adding the same setting to its entry.
+The default volume is `1` (full gain); reduce it if the sound distorts or is too loud.
+Set `loop` to `true` to repeat that bot's sound continuously. The app checks
+voice permissions before joining, waits for the voice connection to become
+ready before playback, and attempts to reconnect if Discord drops the connection.
+Each `tokenEnv` value names the environment variable from which the application
+reads that bot's token. Audio files must be included in the deployed project;
+the configured files are transcoded for Discord voice playback.
+
+A bot whose sound file is not there yet still connects and reports
+`Add an audio file for this bot from the web page` in its status, so you can add
+the sound later without restarting the app.
+
+Voice playback needs an Opus encoder and an encryption library, which are
+installed as dependencies (`opusscript` and `libsodium-wrappers`) by
+`npm install`. Run `npm run test` to confirm playback behaviour on your machine.
+
+The app cannot bypass Discord permissions: a `Missing Access` error means the
+bot has not been invited to the configured server or cannot view the configured
+channel. Check that the configured guild and channel IDs are correct and that
+channel-level permission overrides allow **View Channel**, **Connect**, and
+**Speak** for that specific bot.
+
+## Deploy on Render
+
+Create a **Web Service** for this repository, use **`npm install`** as the
+Build Command and **`npm start`** as the Start Command. Render detects the
+listening `PORT` and checks `/health`. Add a `DISCORD_BOT_TOKEN_XX` environment
+variable for each enabled bot, and ensure the bot's configured sound file is
+committed to the repository. The bot must be invited to the configured server
+and have permission to view, connect to, and speak in its voice channel.

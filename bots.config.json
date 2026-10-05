@@ -1,7 +1,7 @@
 {
   "defaults": {
     "enabled": false,
-    "volume": 0.5,
+    "volume": 1,
     "loop": false
   },
   "bots": [
