@@ -47,8 +47,10 @@ Set `MAX_SOUND_MB` in `.env` to choose a smaller limit. Supported extensions
 include MP3, WAV, OGG, OGA, OPUS, M4A, AAC, FLAC, WEBM, MP4, MKV, AIF, AIFF,
 WMA, and MOV.
 
-Quiet source audio is normalized to a consistent loudness during playback, and
-playback waits for FFmpeg to produce decoded audio before reporting it as started.
+Quiet source audio is normalized to a consistent loudness during playback.
+Playback prepares each connected bot first, schedules all ready players for one
+shared start time, and confirms that each player entered its Playing state.
+Decoder stalls time out per bot so one bad stream cannot block the rest of the fleet.
 The fleet gain control ranges from mute to **3×** (about +9.5 dB of digital gain).
 Higher gain is intentionally capped: extreme output can harm hearing or
 speakers, and digital gain cannot make playback safe. Increase gradually and

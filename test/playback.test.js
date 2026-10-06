@@ -182,8 +182,9 @@ describe("bot playback", () => {
     second.play({ startAt: sharedStart });
     await Promise.all([first.waitUntilReady(), second.waitUntilReady()]);
     assert.equal(streams.length, 0, "neither bot starts before the fleet is ready");
+    const started = Promise.all([first.waitUntilPlaying(), second.waitUntilPlaying()]);
     scheduleFleet(Date.now() + 350);
-    await sleep(500);
+    assert.deepEqual(await started, [true, true], "both players enter Playing state");
     recording = false;
 
     assert.equal(streams.length, 2, "each bot receives one stream");
@@ -339,5 +340,19 @@ describe("bot playback", () => {
     assert.equal(playback.isPlaying(), false, "invalid audio is never sent to the voice player");
     assert.equal(streams.length, 0, "no empty stream is created");
     assert.match(entry.error, /Could not decode/);
+  });
+
+  it("stops a decoder that does not produce audio before its readiness timeout", async () => {
+    streams.length = 0;
+    const entry = makeEntry(soundA);
+    const playback = start(entry);
+
+    assert.equal(playback.play(), true);
+    assert.equal(await playback.waitUntilReady(0), false);
+    assert.match(entry.error, /did not produce audio/);
+    await sleep(50);
+
+    assert.equal(streams.length, 0, "a timed-out decoder cannot start late");
+    playback.stop();
   });
 });

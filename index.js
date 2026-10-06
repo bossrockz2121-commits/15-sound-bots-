@@ -625,7 +625,8 @@ async function playFleet() {
     scheduleStart = resolve;
   });
   for (const entry of bots.values()) {
-    if (!entry.connection || entry.status !== "connected" || !entry.playback) {
+    if (!entry.connection || entry.connection.state.status !== VoiceConnectionStatus.Ready ||
+        entry.status !== "connected" || !entry.playback) {
       results.push({ id: entry.bot.id, ok: false, skipped: true, error: "Bot is not connected to voice." });
       continue;
     }
@@ -639,17 +640,29 @@ async function playFleet() {
   }
 
   const ready = await Promise.all(pending.map((result) => result.entry.playback.waitUntilReady()));
-  const readyCount = ready.filter(Boolean).length;
-  scheduleStart(Date.now() + 250);
+  const readyResults = pending.filter((_result, index) => ready[index]);
+  const startTimestamp = Date.now() + 500;
+  const startedPromises = readyResults.map((result) => result.entry.playback.waitUntilPlaying());
+  scheduleStart(startTimestamp);
   pending.forEach((result, index) => {
     if (!ready[index]) {
       result.ok = false;
       result.error = result.entry.error || "Audio decoder did not become ready.";
     }
-    delete result.entry;
   });
+
+  const started = await Promise.all(startedPromises);
+  readyResults.forEach((result, index) => {
+    if (!started[index]) {
+      result.ok = false;
+      result.error = result.entry.error || "Audio player did not start.";
+    }
+  });
+  pending.forEach((result) => delete result.entry);
+
   const skipped = results.filter((result) => result.skipped).length;
-  if (readyCount === 0) {
+  const playing = results.filter((result) => result.ok).length;
+  if (playing === 0) {
     return {
       ok: false,
       results,
@@ -658,12 +671,12 @@ async function playFleet() {
         : "No connected bot could prepare the selected audio."
     };
   }
-  const playing = readyCount;
+  const failures = results.filter((result) => !result.ok && !result.skipped).length;
   return {
     ok: playing > 0,
     results,
-    error: null,
-    message: `${playing} bot(s) will play together${skipped ? `; ${skipped} not-connected bot(s) skipped` : ""}.`
+    error: failures ? `${failures} connected bot(s) failed to start playback.` : null,
+    message: `${playing} bot(s) started together${skipped ? `; ${skipped} not-connected bot(s) skipped` : ""}.`
   };
 }
 
