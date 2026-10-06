@@ -510,7 +510,8 @@
         );
       }
     } catch (error) {
-      setMessage("Could not reach the server. Check that the app is running.", "error");
+      const reason = error && error.message ? error.message : "unknown network error";
+      setMessage("Could not complete " + action + ": " + reason + ". Check the server health endpoint and logs.", "error");
     } finally {
       actionBusy = false;
       if (button) button.disabled = false;

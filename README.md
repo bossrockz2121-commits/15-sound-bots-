@@ -41,8 +41,9 @@ files at once or drop them in the upload area. The browser uploads up to three
 files concurrently, displays aggregate progress, and streams each file directly
 to disk. Select a track from the library to assign it to every bot, then press
 **Play** to broadcast it to connected bots. Imported formats are decoded by
-FFmpeg to Discord-compatible audio during playback; decoder errors are shown in
-the bot status. The default and maximum accepted size is **90 MB per file**.
+FFmpeg to Discord-compatible audio in real time so tracks remain available until
+the fleet's shared start time; decoder errors are shown in the bot status. The
+default and maximum accepted size is **90 MB per file**.
 Set `MAX_SOUND_MB` in `.env` to choose a smaller limit. Supported extensions
 include MP3, WAV, OGG, OGA, OPUS, M4A, AAC, FLAC, WEBM, MP4, MKV, AIF, AIFF,
 WMA, and MOV.

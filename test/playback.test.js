@@ -87,7 +87,9 @@ describe("bot playback", () => {
     const entry = makeEntry(soundA);
     const playback = start(entry);
     playback.play();
-    await sleep(2500);
+    await playback.waitUntilReady();
+    await playback.waitUntilPlaying();
+    await sleep(1800);
     recording = false;
 
     assert.equal(streams.length, 1, "one add must produce exactly one audio stream");
@@ -157,12 +159,11 @@ describe("bot playback", () => {
     streams.length = 0;
     recording = true;
     const playback = start(makeEntry(soundA));
-    const startAt = Date.now() + 300;
+    const startAt = Date.now() + 1500;
     assert.equal(playback.play({ startAt }), true);
     await playback.waitUntilReady();
-    await sleep(120);
-    assert.equal(streams.length, 0, "the stream waits for the common start time");
-    await sleep(300);
+    const started = playback.waitUntilPlaying();
+    assert.equal(await started, true, "the player enters Playing at the shared start time");
     recording = false;
     assert.equal(streams.length, 1, "the stream starts once the common time arrives");
     assert.ok(streams[0].at >= startAt - 40, "playback must not start ahead of the shared time");
@@ -191,6 +192,25 @@ describe("bot playback", () => {
     assert.ok(Math.abs(streams[0].at - streams[1].at) < 60, "bot streams begin together");
     first.stop();
     second.stop();
+  });
+
+  it("keeps short audio alive until its scheduled fleet start", async () => {
+    streams.length = 0;
+    recording = true;
+    const playback = start(makeEntry(soundB));
+    const startAt = Date.now() + 1300;
+    playback.play({ startAt });
+    await playback.waitUntilReady();
+    const started = playback.waitUntilPlaying();
+
+    await sleep(800);
+    assert.equal(streams.length, 0, "the track waits for the shared start time");
+    assert.equal(await started, true, "the decoder is still alive when the player starts");
+    recording = false;
+
+    assert.equal(streams.length, 1, "the short track is streamed at the scheduled start");
+    assert.ok(streams[0].at >= startAt - 60, "the short track must not start ahead of schedule");
+    playback.stop();
   });
 
   it("cancels a scheduled start when stopped before it begins", async () => {
@@ -250,7 +270,8 @@ describe("bot playback", () => {
     const entry = makeEntry(soundA);
     const playback = start(entry);
     playback.play();
-    await sleep(200);
+    await playback.waitUntilReady();
+    await playback.waitUntilPlaying();
     playback.stop();
     playback.resume();
     recording = false;
