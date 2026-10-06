@@ -298,6 +298,7 @@
     const bots = state.bots || [];
     const connected = bots.filter((bot) => bot.status === "connected").length;
     const playing = bots.filter((bot) => bot.playing).length;
+    const online = bots.filter((bot) => bot.enabled).length;
     $("#online-count").textContent = connected + " / " + bots.length;
     $("#playing-count").textContent = String(playing);
     $("#audio-count").textContent = String((state.sounds || []).length);
