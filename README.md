@@ -8,9 +8,11 @@ to control the whole fleet, and play or stop shared audio from the dashboard.
 
 1. Install Node.js 22.12.0 or later and run `npm install`. The current Discord
    voice protocol requires the DAVE-capable `@discordjs/voice` 0.19 release.
-2. Copy `.env.example` to `.env`, then add a `DISCORD_BOT_TOKEN_XX` value for
-   every bot you want online. Never commit or share a real token.
+2. Copy `.env.example` to `.env`, set a strong, private `WEB_KEY`, then add a
+   `DISCORD_BOT_TOKEN_XX` value for every bot you want online. Never commit or
+   share a real key or token.
 3. Start the service with `npm start`, then open `http://localhost:3000/`.
+   Enter the web key at the login screen before using the dashboard.
 4. Copy a Discord voice channel ID into the dashboard and press **Join all**.
    Bots with configured tokens attempt to join that channel; one bot's missing
    permission or connection problem does not prevent other bots from joining.
@@ -45,10 +47,15 @@ Set `MAX_SOUND_MB` in `.env` to choose a smaller limit. Supported extensions
 include MP3, WAV, OGG, OGA, OPUS, M4A, AAC, FLAC, WEBM, MP4, MKV, AIF, AIFF,
 WMA, and MOV.
 
-The fleet gain control ranges from mute to **3×** (about +9.5 dB of digital
-gain). A 1000× gain is not offered: extreme output can harm hearing or
-speakers, and digital gain cannot make playback safe. Higher gain can also
-distort audio, so increase gradually and keep device volume moderate.
+Quiet source audio is normalized to a consistent loudness during playback. The
+fleet gain control ranges from mute to **3×** (about +9.5 dB of digital gain).
+Higher gain is intentionally capped: extreme output can harm hearing or
+speakers, and digital gain cannot make playback safe. Increase gradually and
+keep device volume moderate.
+
+The dashboard requires `WEB_KEY` (or `DASHBOARD_KEY`) in the environment. It
+uses an HTTP-only, same-site session cookie after login; the key itself is never
+stored in the browser. Use HTTPS when exposing the dashboard outside localhost.
 
 ## API
 

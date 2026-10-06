@@ -31,10 +31,11 @@ const playbacks = [];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function tone(file, seconds, frequency) {
+function tone(file, seconds, frequency, volume = 1) {
   execFileSync(ffmpeg, [
     "-y", "-hide_banner", "-loglevel", "error",
     "-f", "lavfi", "-i", `sine=frequency=${frequency}:duration=${seconds}`,
+    "-af", `volume=${volume}`,
     "-ac", "2", "-ar", "48000", file
   ]);
 }
@@ -122,6 +123,72 @@ describe("bot playback", () => {
 
     assert.ok(chunks.length > 0, "the decoder must provide audio data to the player");
     assert.ok(chunks.reduce((total, chunk) => total + chunk.length, 0) > 0);
+  });
+
+  it("normalizes quiet imported audio to a consistent playback level", async () => {
+    streams.length = 0;
+    const quietSound = path.join(tmpDir, "quiet.wav");
+    tone(quietSound, 1, 440, 0.003162);
+    recording = true;
+    const playback = start(makeEntry(quietSound, { volume: 1 }));
+    playback.play();
+    const chunks = [];
+    streams[0].resource.playStream.on("data", (chunk) => chunks.push(chunk));
+    await sleep(500);
+    playback.stop();
+    recording = false;
+
+    const peak = chunks.reduce((max, chunk) => {
+      for (let offset = 0; offset + 1 < chunk.length; offset += 2) {
+        max = Math.max(max, Math.abs(chunk.readInt16LE(offset)));
+      }
+      return max;
+    }, 0);
+    assert.ok(peak > 3000, `normalized PCM peak should be audible, received ${peak}`);
+  });
+
+  it("starts a scheduled fleet track at its shared start time", async () => {
+    streams.length = 0;
+    recording = true;
+    const playback = start(makeEntry(soundA));
+    const startAt = Date.now() + 300;
+    assert.equal(playback.play({ startAt }), true);
+    await sleep(120);
+    assert.equal(streams.length, 0, "the stream waits for the common start time");
+    await sleep(300);
+    recording = false;
+    assert.equal(streams.length, 1, "the stream starts once the common time arrives");
+    assert.ok(streams[0].at >= startAt - 40, "playback must not start ahead of the shared time");
+    playback.stop();
+  });
+
+  it("keeps separate bot players aligned to one scheduled start time", async () => {
+    streams.length = 0;
+    recording = true;
+    const first = start(makeEntry(soundA));
+    const second = start(makeEntry(soundA));
+    const startAt = Date.now() + 350;
+    first.play({ startAt });
+    second.play({ startAt });
+    await sleep(500);
+    recording = false;
+
+    assert.equal(streams.length, 2, "each bot receives one stream");
+    assert.ok(Math.abs(streams[0].at - streams[1].at) < 60, "bot streams begin together");
+    first.stop();
+    second.stop();
+  });
+
+  it("cancels a scheduled start when stopped before it begins", async () => {
+    streams.length = 0;
+    recording = true;
+    const playback = start(makeEntry(soundA));
+    playback.play({ startAt: Date.now() + 300 });
+    await sleep(50);
+    playback.stop();
+    await sleep(350);
+    recording = false;
+    assert.equal(streams.length, 0, "stopping cancels the pending start");
   });
 
   it("keeps only the newest stream alive when adds arrive rapidly", async () => {

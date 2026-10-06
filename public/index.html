@@ -35,6 +35,20 @@
   }
   button, input { font: inherit; }
   button { color: inherit; }
+  [hidden] { display: none !important; }
+  .auth-screen { display: grid; min-height: 100vh; place-items: center; padding: 24px; }
+  .auth-card {
+    width: min(420px, 100%); padding: 27px; border: 1px solid var(--line); border-radius: var(--radius);
+    background: linear-gradient(155deg, rgba(17, 30, 51, .98), rgba(11, 19, 33, .99));
+    box-shadow: 0 18px 60px rgba(0, 0, 0, .24);
+  }
+  .auth-card h1 { margin: 0; font-size: 25px; letter-spacing: -.04em; }
+  .auth-card p { margin: 9px 0 20px; color: var(--muted); font-size: 13px; }
+  .auth-card .button { width: 100%; margin-top: 12px; }
+  .auth-message { min-height: 22px; margin-top: 10px; color: var(--red); font-size: 12px; }
+  .auth-message.success { color: var(--green); }
+  .topbar-actions { display: flex; align-items: center; gap: 9px; }
+  .logout-button { min-height: 34px; padding: 6px 10px; }
   .shell { width: min(1120px, calc(100% - 36px)); margin: 0 auto; padding: 38px 0 64px; }
   .topbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 34px; }
   .brand { display: flex; align-items: center; gap: 13px; }
@@ -177,7 +191,20 @@
 </style>
 </head>
 <body>
-<main class="shell">
+<section class="auth-screen" id="auth-screen" aria-labelledby="login-title" hidden>
+  <div class="auth-card">
+    <div class="eyebrow">Private dashboard</div>
+    <h1 id="login-title">Enter web key</h1>
+    <p>Use the dashboard key configured by the server administrator.</p>
+    <form id="login-form">
+      <label class="field-label" for="web-key">Web key</label>
+      <input class="text-input" id="web-key" type="password" autocomplete="current-password" required autofocus>
+      <button type="submit" class="button primary">Log in</button>
+    </form>
+    <div class="auth-message" id="auth-message" role="status" aria-live="polite"></div>
+  </div>
+</section>
+<main class="shell" id="dashboard" hidden>
   <div class="topbar">
     <div class="brand">
       <div class="brand-mark" aria-hidden="true">
@@ -185,7 +212,10 @@
       </div>
       <div><div class="brand-name">SOUNDBOTS</div><div class="brand-caption">15 bot fleet control</div></div>
     </div>
-    <div class="service-state"><span class="dot" id="service-dot"></span><span id="service-label">Connecting…</span></div>
+    <div class="topbar-actions">
+      <div class="service-state"><span class="dot" id="service-dot"></span><span id="service-label">Connecting…</span></div>
+      <button type="button" class="button secondary logout-button" id="logout-button">Log out</button>
+    </div>
   </div>
 
   <h1>One sound. Every bot.</h1>
@@ -278,6 +308,8 @@
   let uploadRecord = null;
   let gainTimer = null;
   let actionBusy = false;
+  let refreshTimer = null;
+  let dashboardStarted = false;
 
   function formatBytes(bytes) {
     if (!bytes) return "0 B";
@@ -290,6 +322,36 @@
     const message = $("#control-message");
     message.textContent = text || "";
     message.className = "message" + (kind ? " " + kind : "");
+  }
+
+  function unlockDashboard() {
+    $("#auth-screen").hidden = true;
+    $("#dashboard").hidden = false;
+    if (dashboardStarted) return;
+    dashboardStarted = true;
+    refresh();
+    refreshTimer = setInterval(refresh, 2500);
+  }
+
+  async function checkSession() {
+    try {
+      const response = await fetch("/api/auth/session", { cache: "no-store" });
+      const session = await response.json();
+      if (!session.configured) {
+        $("#auth-message").textContent = "Dashboard login is not configured. Set WEB_KEY on the server.";
+        $("#auth-screen").hidden = false;
+        return;
+      }
+      if (session.authenticated) {
+        unlockDashboard();
+        return;
+      }
+      $("#auth-screen").hidden = false;
+      $("#web-key").focus();
+    } catch (error) {
+      $("#auth-screen").hidden = false;
+      $("#auth-message").textContent = "Could not connect to the dashboard server.";
+    }
   }
 
   function render(state) {
@@ -419,7 +481,10 @@
       if (payload.state) render(payload.state);
       if (!response.ok || !payload.ok) {
         const failures = (payload.results || []).filter((result) => !result.ok);
-        const details = failures.length ? " " + failures.length + " bot(s) need attention; see their status below." : "";
+        const details = failures.length
+          ? " " + failures.slice(0, 3).map((result) => result.id + ": " + result.error).join(" ")
+            + (failures.length > 3 ? " +" + (failures.length - 3) + " more; see bot status below." : "")
+          : "";
         setMessage((payload.error || "Control action failed.") + details, "error");
       } else if (action === "join") {
         const joined = (payload.results || []).filter((result) => result.ok).length;
@@ -437,7 +502,10 @@
         };
         const failures = (payload.results || []).filter((result) => !result.ok);
         setMessage(
-          successMessages[action] + (failures.length ? " " + failures.length + " bot(s) failed; check their permissions and status." : ""),
+          successMessages[action] + (failures.length
+            ? " " + failures.slice(0, 3).map((result) => result.id + ": " + result.error).join(" ")
+              + (failures.length > 3 ? " +" + (failures.length - 3) + " more; see bot status below." : "")
+            : ""),
           failures.length ? "error" : "success"
         );
       }
@@ -569,6 +637,36 @@
   $("#unmute-button").addEventListener("click", () => fleetAction("unmute"));
   $("#deafen-button").addEventListener("click", () => fleetAction("deafen"));
   $("#undeafen-button").addEventListener("click", () => fleetAction("undeafen"));
+  $("#logout-button").addEventListener("click", async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    if (refreshTimer) clearInterval(refreshTimer);
+    dashboardStarted = false;
+    $("#dashboard").hidden = true;
+    $("#auth-screen").hidden = false;
+    $("#web-key").value = "";
+    $("#web-key").focus();
+    $("#auth-message").textContent = "You have been logged out.";
+  });
+  $("#login-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const message = $("#auth-message");
+    message.className = "auth-message";
+    message.textContent = "Checking web key…";
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ key: $("#web-key").value })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Login failed.");
+      $("#web-key").value = "";
+      unlockDashboard();
+    } catch (error) {
+      message.textContent = error.message;
+      $("#web-key").select();
+    }
+  });
   $("#refresh-button").addEventListener("click", refresh);
   $("#channel-id").addEventListener("keydown", (event) => {
     if (event.key === "Enter") fleetAction("join");
@@ -601,8 +699,7 @@
   }));
   uploadZone.addEventListener("drop", (event) => uploadFiles(Array.from(event.dataTransfer?.files || [])));
 
-  refresh();
-  setInterval(refresh, 2500);
+  checkSession();
 </script>
 </body>
 </html>

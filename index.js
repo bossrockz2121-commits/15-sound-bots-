@@ -5,6 +5,7 @@ const path = require("node:path");
 const { Transform } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 const dotenv = require("dotenv");
+const { createWebAuth } = require("./lib/web-auth");
 const { Client, GatewayIntentBits, ChannelType } = require("discord.js");
 const {
   entersState,
@@ -15,6 +16,8 @@ const { destroyVoiceConnection, joinBotVoiceChannel } = require("./lib/voice-con
 const { attachVoiceRecovery } = require("./lib/voice-recovery");
 
 dotenv.config();
+const dashboardKey = process.env.WEB_KEY || process.env.DASHBOARD_KEY;
+const webAuth = dashboardKey ? createWebAuth(dashboardKey) : null;
 
 const projectRoot = __dirname;
 const configPath = path.join(projectRoot, "bots.config.json");
@@ -321,6 +324,34 @@ function sendText(response, statusCode, message) {
   response.writeHead(statusCode, { "content-type": "text/plain; charset=utf-8" }).end(message);
 }
 
+function isSecureRequest(request) {
+  return Boolean(
+    request.socket.encrypted ||
+    request.headers["x-forwarded-proto"]?.split(",")[0].trim() === "https"
+  );
+}
+
+async function readJsonBody(request, maxBytes = 8192) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > maxBytes) {
+      const error = new Error("Request body is too large.");
+      error.statusCode = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    const error = new Error("Request body must be valid JSON.");
+    error.statusCode = 400;
+    throw error;
+  }
+}
+
 /** Saves each uploaded audio file in the bot's library without replacing other sounds. */
 function soundTargetFor(entry, uploadedName) {
   const uploadedExtension = path.extname(uploadedName).toLowerCase();
@@ -588,6 +619,7 @@ function playFleet() {
     return { ok: false, error: "Upload an audio file before pressing Play." };
   }
   const results = [];
+  const startAt = Date.now() + 1_500;
   for (const entry of bots.values()) {
     if (!entry.connection || entry.status !== "connected" || !entry.playback) {
       results.push({ id: entry.bot.id, ok: false, error: "Bot is not connected to voice." });
@@ -596,7 +628,7 @@ function playFleet() {
     entry.soundFile = selectedFleetAudio.file;
     entry.soundPath = selectedFleetAudio.absolute;
     entry.volume = fleetGain;
-    const ok = entry.playback.play();
+    const ok = entry.playback.play({ startAt });
     results.push({ id: entry.bot.id, ok, error: ok ? null : entry.error || "Could not start playback." });
   }
   const playing = results.filter((result) => result.ok).length;
@@ -621,16 +653,23 @@ async function setFleetVoiceState(field, value) {
       const guild = entry.client.guilds.cache.get(entry.guildId);
       const member = guild?.members.me || await guild?.members.fetch(entry.client.user.id);
       if (!member) throw new Error("Could not find this bot in the voice channel's server.");
+      const permission = field === "muted" ? "MuteMembers" : "DeafenMembers";
+      if (!member.permissions.has(permission)) {
+        throw new Error(
+          `Missing ${permission} permission for ${entry.channelName || "the voice channel"}. ` +
+          `Grant it to this bot on the channel or its category.`
+        );
+      }
       if (field === "muted") await member.voice.setMute(value, "Sound Bots fleet control");
       else await member.voice.setDeaf(value, "Sound Bots fleet control");
       entry[field] = value;
       return { id: entry.bot.id, ok: true };
     } catch (error) {
-      const permission = error.code === 50013
-        ? `Grant this bot the ${field === "muted" ? "Mute Members" : "Deafen Members"} permission.`
-        : error.message;
-      entry.error = permission;
-      return { id: entry.bot.id, ok: false, error: permission };
+      const reason = error.code === 50013
+        ? `Discord denied the request. Grant this bot the ${field === "muted" ? "Mute Members" : "Deafen Members"} permission.`
+        : error.message || String(error);
+      entry.error = reason;
+      return { id: entry.bot.id, ok: false, error: reason };
     }
   }));
   const succeeded = results.filter((result) => result.ok).length;
@@ -646,6 +685,44 @@ async function setFleetVoiceState(field, value) {
 async function handleRequest(request, response) {
   const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
   const { pathname } = url;
+
+  if (pathname === "/api/auth/session" && request.method === "GET") {
+    sendJson(response, 200, {
+      configured: Boolean(webAuth),
+      authenticated: Boolean(webAuth?.hasSession(request))
+    });
+    return;
+  }
+
+  if (pathname === "/api/auth/login" && request.method === "POST") {
+    if (!webAuth) {
+      sendJson(response, 503, { error: "Dashboard login is not configured. Set WEB_KEY in the environment." });
+      return;
+    }
+    const body = await readJsonBody(request);
+    if (!webAuth.verifyKey(body?.key)) {
+      sendJson(response, 401, { error: "The web key is incorrect." });
+      return;
+    }
+    const token = webAuth.createSession();
+    response.writeHead(200, {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      "set-cookie": webAuth.cookie(token, isSecureRequest(request))
+    }).end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  if (pathname === "/api/auth/logout" && request.method === "POST") {
+    webAuth?.clearSession(request);
+    response.writeHead(200, {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      "set-cookie": webAuth?.clearCookie(isSecureRequest(request)) ||
+        "soundbots_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"
+    }).end(JSON.stringify({ ok: true }));
+    return;
+  }
 
   if (request.method === "GET" && (pathname === "/" || pathname === "/index.html")) {
     try {
@@ -667,6 +744,11 @@ async function handleRequest(request, response) {
       enabledBots: [...bots.values()].filter((entry) => entry.client?.isReady()).length,
       bots: Object.fromEntries([...bots].map(([id, entry]) => [id, entry.status]))
     });
+    return;
+  }
+
+  if (pathname.startsWith("/api/") && !webAuth?.hasSession(request)) {
+    sendJson(response, 401, { error: "Enter the web key to access the dashboard." });
     return;
   }
 
