@@ -614,28 +614,56 @@ function disconnectFleet() {
   return { ok: true };
 }
 
-function playFleet() {
+async function playFleet() {
   if (!selectedFleetAudio || !fs.existsSync(selectedFleetAudio.absolute)) {
     return { ok: false, error: "Upload an audio file before pressing Play." };
   }
   const results = [];
-  const startAt = Date.now() + 1_500;
+  const pending = [];
+  let scheduleStart;
+  const startAt = new Promise((resolve) => {
+    scheduleStart = resolve;
+  });
   for (const entry of bots.values()) {
     if (!entry.connection || entry.status !== "connected" || !entry.playback) {
-      results.push({ id: entry.bot.id, ok: false, error: "Bot is not connected to voice." });
+      results.push({ id: entry.bot.id, ok: false, skipped: true, error: "Bot is not connected to voice." });
       continue;
     }
     entry.soundFile = selectedFleetAudio.file;
     entry.soundPath = selectedFleetAudio.absolute;
     entry.volume = fleetGain;
-    const ok = entry.playback.play({ startAt });
-    results.push({ id: entry.bot.id, ok, error: ok ? null : entry.error || "Could not start playback." });
+    const result = { id: entry.bot.id, ok: entry.playback.play({ startAt }), entry };
+    result.error = result.ok ? null : entry.error || "Could not start playback.";
+    results.push(result);
+    if (result.ok) pending.push(result);
   }
-  const playing = results.filter((result) => result.ok).length;
+
+  const ready = await Promise.all(pending.map((result) => result.entry.playback.waitUntilReady()));
+  const readyCount = ready.filter(Boolean).length;
+  scheduleStart(Date.now() + 250);
+  pending.forEach((result, index) => {
+    if (!ready[index]) {
+      result.ok = false;
+      result.error = result.entry.error || "Audio decoder did not become ready.";
+    }
+    delete result.entry;
+  });
+  const skipped = results.filter((result) => result.skipped).length;
+  if (readyCount === 0) {
+    return {
+      ok: false,
+      results,
+      error: skipped === results.length
+        ? "No bots are connected to voice. Join at least one bot before pressing Play."
+        : "No connected bot could prepare the selected audio."
+    };
+  }
+  const playing = readyCount;
   return {
     ok: playing > 0,
     results,
-    error: playing ? null : "No connected bots could start playback."
+    error: null,
+    message: `${playing} bot(s) will play together${skipped ? `; ${skipped} not-connected bot(s) skipped` : ""}.`
   };
 }
 
@@ -647,7 +675,7 @@ function stopFleet() {
 async function setFleetVoiceState(field, value) {
   const results = await Promise.all([...bots.values()].map(async (entry) => {
     if (!entry.connection || entry.status !== "connected" || !entry.guildId) {
-      return { id: entry.bot.id, ok: false, error: "Bot is not connected to voice." };
+      return { id: entry.bot.id, ok: false, skipped: true, error: "Bot is not connected to voice." };
     }
     try {
       const guild = entry.client.guilds.cache.get(entry.guildId);
@@ -673,12 +701,19 @@ async function setFleetVoiceState(field, value) {
     }
   }));
   const succeeded = results.filter((result) => result.ok).length;
+  const skipped = results.filter((result) => result.skipped).length;
+  const failed = results.filter((result) => !result.ok && !result.skipped).length;
   return {
-    ok: succeeded > 0,
+    ok: succeeded > 0 || (skipped === results.length),
     results,
     error: succeeded
       ? null
-      : `No bots could be ${value ? field === "muted" ? "muted" : "deafened" : field === "muted" ? "unmuted" : "undeafened"}.`
+      : failed
+        ? `No connected bots could be ${value ? field === "muted" ? "muted" : "deafened" : field === "muted" ? "unmuted" : "undeafened"}.`
+        : null,
+    message: succeeded
+      ? `${succeeded} bot(s) updated${skipped ? `; ${skipped} not-connected bot(s) skipped` : ""}.`
+      : `No bots are connected; nothing to ${value ? field === "muted" ? "mute" : "deafen" : field === "muted" ? "unmute" : "undeafen"}.`
   };
 }
 
@@ -801,7 +836,7 @@ async function handleRequest(request, response) {
       return;
     }
     if (action === "play") {
-      const result = playFleet();
+      const result = await playFleet();
       sendJson(response, result.ok ? 200 : 409, { ...result, state: fleetSnapshot() });
       return;
     }

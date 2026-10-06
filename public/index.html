@@ -480,7 +480,7 @@
       const payload = await response.json();
       if (payload.state) render(payload.state);
       if (!response.ok || !payload.ok) {
-        const failures = (payload.results || []).filter((result) => !result.ok);
+        const failures = (payload.results || []).filter((result) => !result.ok && !result.skipped);
         const details = failures.length
           ? " " + failures.slice(0, 3).map((result) => result.id + ": " + result.error).join(" ")
             + (failures.length > 3 ? " +" + (failures.length - 3) + " more; see bot status below." : "")
@@ -500,9 +500,9 @@
           deafen: "Connected bots deafened.",
           undeafen: "Connected bots undeafened."
         };
-        const failures = (payload.results || []).filter((result) => !result.ok);
+        const failures = (payload.results || []).filter((result) => !result.ok && !result.skipped);
         setMessage(
-          successMessages[action] + (failures.length
+          (payload.message || successMessages[action]) + (failures.length
             ? " " + failures.slice(0, 3).map((result) => result.id + ": " + result.error).join(" ")
               + (failures.length > 3 ? " +" + (failures.length - 3) + " more; see bot status below." : "")
             : ""),

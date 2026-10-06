@@ -167,9 +167,15 @@ describe("bot playback", () => {
     recording = true;
     const first = start(makeEntry(soundA));
     const second = start(makeEntry(soundA));
-    const startAt = Date.now() + 350;
-    first.play({ startAt });
-    second.play({ startAt });
+    let scheduleFleet;
+    const sharedStart = new Promise((resolve) => {
+      scheduleFleet = resolve;
+    });
+    first.play({ startAt: sharedStart });
+    second.play({ startAt: sharedStart });
+    await sleep(100);
+    assert.equal(streams.length, 0, "neither bot starts before the fleet is ready");
+    scheduleFleet(Date.now() + 350);
     await sleep(500);
     recording = false;
 
