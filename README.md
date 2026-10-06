@@ -47,15 +47,18 @@ Set `MAX_SOUND_MB` in `.env` to choose a smaller limit. Supported extensions
 include MP3, WAV, OGG, OGA, OPUS, M4A, AAC, FLAC, WEBM, MP4, MKV, AIF, AIFF,
 WMA, and MOV.
 
-Quiet source audio is normalized to a consistent loudness during playback. The
-fleet gain control ranges from mute to **3×** (about +9.5 dB of digital gain).
+Quiet source audio is normalized to a consistent loudness during playback, and
+playback waits for FFmpeg to produce decoded audio before reporting it as started.
+The fleet gain control ranges from mute to **3×** (about +9.5 dB of digital gain).
 Higher gain is intentionally capped: extreme output can harm hearing or
 speakers, and digital gain cannot make playback safe. Increase gradually and
 keep device volume moderate.
 
 The dashboard requires `WEB_KEY` (or `DASHBOARD_KEY`) in the environment. It
-uses an HTTP-only, same-site session cookie after login; the key itself is never
-stored in the browser. Use HTTPS when exposing the dashboard outside localhost.
+uses a signed, HTTP-only, same-site session cookie that stays valid for 30 days,
+including across service restarts; the key itself is never stored in the browser.
+Logging out clears the browser's session cookie. Use HTTPS when exposing the
+dashboard outside localhost.
 
 ## API
 

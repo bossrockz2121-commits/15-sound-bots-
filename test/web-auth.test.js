@@ -22,10 +22,11 @@ describe("dashboard web-key authentication", () => {
     assert.match(cookie, /HttpOnly/);
     assert.match(cookie, /SameSite=Strict/);
     assert.match(cookie, /Secure/);
+    assert.match(cookie, /Max-Age=2592000/);
     assert.equal(auth.hasSession(requestWithCookie(cookie)), true);
   });
 
-  it("expires sessions and supports logout", () => {
+  it("expires sessions", () => {
     let timestamp = 100;
     const auth = createWebAuth("a-private-key", {
       now: () => timestamp,
@@ -37,12 +38,17 @@ describe("dashboard web-key authentication", () => {
     assert.equal(auth.hasSession(request), true);
     timestamp += 50;
     assert.equal(auth.hasSession(request), false);
+    assert.match(auth.clearCookie(), /Max-Age=0/);
+  });
 
-    timestamp = 200;
-    const nextToken = auth.createSession();
-    const nextRequest = requestWithCookie(`soundbots_session=${nextToken}`);
-    auth.clearSession(nextRequest);
-    assert.equal(auth.hasSession(nextRequest), false);
+  it("keeps signed sessions valid across server restarts without exposing the key", () => {
+    const auth = createWebAuth("a-private-key");
+    const token = auth.createSession();
+    const request = requestWithCookie(`soundbots_session=${token}`);
+
+    assert.equal(createWebAuth("a-private-key").hasSession(request), true);
+    assert.equal(createWebAuth("different-key").hasSession(request), false);
+    assert.equal(auth.hasSession(requestWithCookie(`soundbots_session=${token}x`)), false);
   });
 
   it("requires a configured key", () => {

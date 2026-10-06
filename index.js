@@ -749,7 +749,6 @@ async function handleRequest(request, response) {
   }
 
   if (pathname === "/api/auth/logout" && request.method === "POST") {
-    webAuth?.clearSession(request);
     response.writeHead(200, {
       "content-type": "application/json; charset=utf-8",
       "cache-control": "no-store",

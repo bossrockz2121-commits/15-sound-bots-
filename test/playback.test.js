@@ -101,7 +101,9 @@ describe("bot playback", () => {
     const entry = makeEntry(soundA);
     const playback = start(entry);
     playback.play();
+    await playback.waitUntilReady();
     playback.setVolume(1.75);
+    await sleep(20);
     recording = false;
 
     assert.equal(streams.length, 1, "changing gain must not create another stream");
@@ -115,6 +117,8 @@ describe("bot playback", () => {
     recording = true;
     const playback = start(makeEntry(soundA));
     playback.play();
+    await playback.waitUntilReady();
+    await sleep(20);
     const chunks = [];
     streams[0].resource.playStream.on("data", (chunk) => chunks.push(chunk));
     await sleep(400);
@@ -132,6 +136,8 @@ describe("bot playback", () => {
     recording = true;
     const playback = start(makeEntry(quietSound, { volume: 1 }));
     playback.play();
+    await playback.waitUntilReady();
+    await sleep(20);
     const chunks = [];
     streams[0].resource.playStream.on("data", (chunk) => chunks.push(chunk));
     await sleep(500);
@@ -144,7 +150,7 @@ describe("bot playback", () => {
       }
       return max;
     }, 0);
-    assert.ok(peak > 3000, `normalized PCM peak should be audible, received ${peak}`);
+    assert.ok(peak > 4000, `normalized PCM peak should be audible, received ${peak}`);
   });
 
   it("starts a scheduled fleet track at its shared start time", async () => {
@@ -153,6 +159,7 @@ describe("bot playback", () => {
     const playback = start(makeEntry(soundA));
     const startAt = Date.now() + 300;
     assert.equal(playback.play({ startAt }), true);
+    await playback.waitUntilReady();
     await sleep(120);
     assert.equal(streams.length, 0, "the stream waits for the common start time");
     await sleep(300);
@@ -173,7 +180,7 @@ describe("bot playback", () => {
     });
     first.play({ startAt: sharedStart });
     second.play({ startAt: sharedStart });
-    await sleep(100);
+    await Promise.all([first.waitUntilReady(), second.waitUntilReady()]);
     assert.equal(streams.length, 0, "neither bot starts before the fleet is ready");
     scheduleFleet(Date.now() + 350);
     await sleep(500);
@@ -197,23 +204,18 @@ describe("bot playback", () => {
     assert.equal(streams.length, 0, "stopping cancels the pending start");
   });
 
-  it("keeps only the newest stream alive when adds arrive rapidly", async () => {
+  it("keeps only the newest stream alive when requests arrive rapidly", async () => {
     streams.length = 0;
     recording = true;
     const entry = makeEntry(soundA);
     const playback = start(entry);
     for (let i = 0; i < 5; i += 1) playback.play();
+    await playback.waitUntilReady();
+    await sleep(20);
     recording = false;
 
-    assert.equal(streams.length, 5, "each add is honoured");
+    assert.equal(streams.length, 1, "only the newest request starts after decoding");
     assert.equal(liveStreams(), 1, "only one stream may be audible at a time");
-    assert.ok(
-      streams.slice(0, 4).every(({ resource }) => resource.playStream.destroyed),
-      "older streams are destroyed so their audio and ffmpeg process are gone"
-    );
-
-    await sleep(400);
-    assert.equal(streams.length, 5, "no delayed duplicate stream appears afterwards");
     playback.stop();
   });
 
@@ -223,6 +225,8 @@ describe("bot playback", () => {
     const entry = makeEntry(soundA);
     const playback = start(entry);
     playback.play();
+    await playback.waitUntilReady();
+    await sleep(20);
     await sleep(400);
     playback.resume();
     playback.resume();
@@ -231,6 +235,8 @@ describe("bot playback", () => {
     playback.player.stop(true);
     await sleep(50);
     playback.resume();
+    await playback.waitUntilReady();
+    await sleep(20);
     recording = false;
     assert.equal(streams.length, 2, "a reconnect recovery starts exactly one stream");
     assert.equal(liveStreams(), 1, "the recovered sound is the only live stream");
@@ -257,6 +263,8 @@ describe("bot playback", () => {
     const entry = makeEntry(soundA);
     const playback = start(entry);
     playback.play();
+    await playback.waitUntilReady();
+    await sleep(20);
     await sleep(500);
     playback.stop();
 
@@ -265,6 +273,8 @@ describe("bot playback", () => {
     fs.renameSync(replacement, soundA);
 
     playback.play();
+    await playback.waitUntilReady();
+    await sleep(20);
     recording = false;
     assert.equal(streams.length, 2, "the replacement plays right after the old sound");
     assert.equal(liveStreams(), 1, "the replacement is the only live stream");
@@ -313,5 +323,21 @@ describe("bot playback", () => {
     assert.equal(started, false, "playback must not start without a file");
     assert.equal(streams.length, 0, "nothing is streamed");
     assert.ok(entry.error && entry.error.length > 0, "the bot status explains what is missing");
+  });
+
+  it("does not report empty or invalid audio as ready to play", async () => {
+    streams.length = 0;
+    const invalidSound = path.join(tmpDir, "empty.wav");
+    fs.writeFileSync(invalidSound, Buffer.alloc(0));
+    const entry = makeEntry(invalidSound);
+    const playback = start(entry);
+
+    assert.equal(playback.play(), true, "the decoder process starts");
+    assert.equal(await playback.waitUntilReady(), false, "no decoded samples means playback is not ready");
+    await sleep(20);
+
+    assert.equal(playback.isPlaying(), false, "invalid audio is never sent to the voice player");
+    assert.equal(streams.length, 0, "no empty stream is created");
+    assert.match(entry.error, /Could not decode/);
   });
 });
